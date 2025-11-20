@@ -1,10 +1,16 @@
-#include "backend/interpreter.h"
+#define STACK_SIZE 1024
+#define WORD_SIZE int64_t
+
+#include "backend/interpreter/interpreter.h"
+#include "backend/tac/tac.h"
 #include "vm/vm.h"
 
-int main() {
-    word prog[64];
-    size_t p = 0;
-    
+#define BACKEND INTERPRETER_BACKEND
+
+void run() {
+
+    __init(64);
+
     __push(3);
     __push(4);
     __add();
@@ -13,14 +19,19 @@ int main() {
     __print();
     __halt();
 
-    VM vm = {
-        .code = prog,
-        .code_len = p,
-        .ip = 0,
-        .sp = 0,
-    };
+    __end;
 
-    run_vm(&vm, &INTERPRETER_BACKEND);
+    run_vm(&vm, &BACKEND);
 
+    if(&BACKEND == &TAC_BACKEND) {
+      printf("---- TAC Dump ----\n");
+      tac_dump(tac_get_prog(&vm));
+    }
+
+    if (BACKEND.finalize) BACKEND.finalize(&vm, 0);
+}
+
+int main() {
+    run();
     return 0;
 }

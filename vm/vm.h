@@ -7,9 +7,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+// vm config
+#ifndef STACK_SIZE
 #define STACK_SIZE 1024
+#endif
 
-typedef int32_t word;
+#ifndef WORD_SIZE
+#define WORD_SIZE int64_t
+#endif
+
+typedef WORD_SIZE word;
 
 typedef enum {
     OP_NOP = 0,
@@ -32,9 +39,12 @@ typedef struct {
     size_t ip;
     word stack[STACK_SIZE];
     int sp;
+    void *user_data; // backend-specific data
 } VM;
 
 typedef struct Backend {
+    void (*setup)(VM *vm);
+    void (*finalize)(VM *vm, word imm);
     void (*op_push)(VM *vm, word imm);
     void (*op_add)(VM *vm);
     void (*op_sub)(VM *vm);
@@ -65,6 +75,9 @@ static inline size_t emit1(word *buf, size_t pos, word op, word imm) {
 }
 
 static inline void run_vm(VM *vm, const Backend *backend) {
+
+    if (backend->setup) backend->setup(vm);
+
     vm->ip = 0;
     vm->sp = 0;
     
@@ -96,13 +109,21 @@ static inline void run_vm(VM *vm, const Backend *backend) {
                 backend->op_print(vm);
                 break;
             case OP_HALT:
-                return;
+                break;
             default:
                 fprintf(stderr, "Unknown opcode: %d\n", op);
                 exit(1);
         }
     }
+
 }
+
+// helpers for setup
+#define __init(size) \
+    word prog[size]; \
+    size_t p = 0;
+
+#define __end VM vm = { .code = prog, .code_len = p, .ip = 0, .sp = 0, };
 
 // helpers for each op
 #define __push(imm) p = emit1(prog, p, OP_PUSH, imm)

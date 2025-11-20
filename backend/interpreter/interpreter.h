@@ -1,7 +1,7 @@
 #ifndef INTERP_H
 #define INTERP_H
 
-#include "../vm/vm.h"
+#include "../../vm/vm.h"
 
 static inline word add_fn(word a, word b) {
     return a + b;
@@ -49,10 +49,15 @@ static inline void interp_div(VM *vm) {
 
 static inline void interp_print(VM *vm) {
     word value = vm_pop(vm);
-    printf("%i\n", value);
+    printf("%li\n", value);
 }
 
+static inline void inter_setup(VM *vm) {}
+static inline void inter_finalize(VM *vm, word imm) {}
+
 static const Backend INTERPRETER_BACKEND = {
+    .setup = inter_setup,
+    .finalize = inter_finalize,
     .op_push = interp_push,
     .op_add = interp_add,
     .op_sub = interp_sub,
