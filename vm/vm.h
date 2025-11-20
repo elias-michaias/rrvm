@@ -123,7 +123,7 @@ static inline void run_vm(VM *vm, const Backend *backend) {
     word prog[size]; \
     size_t p = 0;
 
-#define __end VM vm = { .code = prog, .code_len = p, .ip = 0, .sp = 0, };
+#define __end VM vm = { .code = prog, .code_len = p, .ip = 0, .sp = 0, }; return vm;
 
 // helpers for each op
 #define __push(imm) p = emit1(prog, p, OP_PUSH, imm)

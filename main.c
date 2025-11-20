@@ -8,7 +8,6 @@
 #define BACKEND INTERPRETER_BACKEND
 
 VM program() {
-
     __init(64);
 
     __push(3);
@@ -20,8 +19,6 @@ VM program() {
     __halt();
 
     __end;
-
-    return vm;
 }
 
 int main() {
