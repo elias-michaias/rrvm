@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include <assert.h>
 
+/* enable debug diagnostics (set to 1 to enable verbose prints) */
+#ifndef TAC_DEBUG
+#define TAC_DEBUG 0
+#endif
+
 // --- TAC IR ---
 typedef enum {
     TAC_CONST,
@@ -150,11 +155,16 @@ static inline void tac_record_vm_ip(tac_backend_state *s, size_t vm_ip, int tac_
 static void tac_fix_vm_map_after_insert(tac_backend_state *s, size_t idx) {
     if (!s->vm_ip_to_tac_index) return;
     /* diagnostic: print a small snapshot before fix */
-    fprintf(stderr, "[tac_fix_vm_map_after_insert] before: idx=%zu, count=%zu\n", idx, s->prog.count);
-    for (size_t i = 0; i < s->vm_code_len; ++i) {
-        if (s->vm_ip_to_tac_index[i] >= 0) fprintf(stderr, " vm_ip[%zu] -> %d\n", i, s->vm_ip_to_tac_index[i]);
+    if (TAC_DEBUG) {
+        fprintf(stderr, "[tac_fix_vm_map_after_insert] before: idx=%zu, count=%zu\n", idx, s->prog.count);
+        for (size_t i = 0; i < s->vm_code_len; ++i) {
+            if (s->vm_ip_to_tac_index[i] >= 0) fprintf(stderr, " vm_ip[%zu] -> %d\n", i, s->vm_ip_to_tac_index[i]);
+        }
     }
 
+    /* when we bump indices, increment any vm_ip mappings that pointed at or after the insertion index.
+       vm_ip_to_tac_label is keyed by vm_ip (not by tac index), so label entries remain attached to the
+       originating vm_ip and do not require shifting here; avoid clearing them. */
     for (size_t i = 0; i < s->vm_code_len; ++i) {
         if (s->vm_ip_to_tac_index[i] >= 0 && (size_t)s->vm_ip_to_tac_index[i] >= idx) {
             s->vm_ip_to_tac_index[i]++;
@@ -162,9 +172,12 @@ static void tac_fix_vm_map_after_insert(tac_backend_state *s, size_t idx) {
     }
 
     /* diagnostic: print after fix */
-    fprintf(stderr, "[tac_fix_vm_map_after_insert] after:\n");
-    for (size_t i = 0; i < s->vm_code_len; ++i) {
-        if (s->vm_ip_to_tac_index[i] >= 0) fprintf(stderr, " vm_ip[%zu] -> %d\n", i, s->vm_ip_to_tac_index[i]);
+    if (TAC_DEBUG) {
+        fprintf(stderr, "[tac_fix_vm_map_after_insert] after:\n");
+        for (size_t i = 0; i < s->vm_code_len; ++i) {
+            if (s->vm_ip_to_tac_index[i] >= 0) fprintf(stderr, " vm_ip[%zu] -> %d\n", i, s->vm_ip_to_tac_index[i]);
+            if (s->vm_ip_to_tac_label && s->vm_ip_to_tac_label[i] >= 0) fprintf(stderr, " vm_ip[%zu] -> L%d (label)\n", i, s->vm_ip_to_tac_label[i]);
+        }
     }
 }
 
@@ -272,16 +285,31 @@ static void tac_emit_ret(tac_backend_state *s) {
 
 /* insert a TAC_LABEL at a specific tac instruction index and fix vm map (diagnostic) */
 static void tac_insert_label_at_idx(tac_backend_state *s, size_t idx, int label) {
-    fprintf(stderr, "[tac_insert_label_at_idx] inserting label L%d at tac idx %zu (prog.count=%zu)\n", label, idx, s->prog.count);
-    tac_insert_at(&s->prog, idx, (tac_instr){.op=TAC_LABEL, .imm=(word)label});
-    /* diagnostics: show a few entries around idx */
-    size_t start = idx > 3 ? idx - 3 : 0;
-    size_t end = (idx + 3) < s->prog.count ? idx + 3 : s->prog.count - 1;
-    for (size_t i = start; i <= end; ++i) {
-        tac_instr *it = &s->prog.code[i];
-        if (it->op == TAC_LABEL) fprintf(stderr, "  prog[%zu] = L%d\n", i, (int)it->imm);
-        else if (it->op == TAC_JZ) fprintf(stderr, "  prog[%zu] = JZ t%d -> L%d\n", i, it->lhs, (int)it->imm);
+    if (TAC_DEBUG) fprintf(stderr, "[tac_insert_label_at_idx] inserting label L%d at tac idx %zu (prog.count=%zu)\n", label, idx, s->prog.count);
+
+    /* before we shift vm->tac index map, record which vm_ip(s) pointed at idx so we can assign the label to them */
+    if (s->vm_ip_to_tac_index && s->vm_ip_to_tac_label) {
+        for (size_t i = 0; i < s->vm_code_len; ++i) {
+            if (s->vm_ip_to_tac_index[i] == (int)idx) {
+                s->vm_ip_to_tac_label[i] = label;
+                if (TAC_DEBUG) fprintf(stderr, "  vm_ip[%zu] -> L%d\n", i, label);
+            }
+        }
     }
+
+    tac_insert_at(&s->prog, idx, (tac_instr){.op=TAC_LABEL, .imm=(word)label});
+
+    /* diagnostics: show a few entries around idx */
+    if (TAC_DEBUG) {
+        size_t start = idx > 3 ? idx - 3 : 0;
+        size_t end = (idx + 3) < s->prog.count ? idx + 3 : s->prog.count - 1;
+        for (size_t i = start; i <= end; ++i) {
+            tac_instr *it = &s->prog.code[i];
+            if (it->op == TAC_LABEL) fprintf(stderr, "  prog[%zu] = L%d\n", i, (int)it->imm);
+            else if (it->op == TAC_JZ) fprintf(stderr, "  prog[%zu] = JZ t%d -> L%d\n", i, it->lhs, (int)it->imm);
+        }
+    }
+
     /* fix vm mapping */
     tac_fix_vm_map_after_insert(s, idx);
 }
