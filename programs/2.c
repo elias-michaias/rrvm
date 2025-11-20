@@ -1,6 +1,6 @@
 #include "../vm/vm.h"
 
-VM program() {
+VM __2() {
     __init(256);
 
     /* function 0: push constants 7 and 35 and return their sum */

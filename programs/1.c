@@ -1,6 +1,6 @@
 #include "../vm/vm.h"
 
-VM program() {
+VM __1() {
     __init(64);
 
     /* Pointer instructions demo:
