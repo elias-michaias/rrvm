@@ -112,7 +112,8 @@ typedef struct Backend {
     void (*op_function)(VM *vm, word func_index);
     void (*op_call)(VM *vm, word func_index);
     void (*op_return)(VM *vm);
-    void (*op_while)(VM *vm);
+    /* op_while now receives an immediate indicating the ip of the condition's first instruction */
+    void (*op_while)(VM *vm, word cond_ip);
     void (*op_if)(VM *vm);
     void (*op_else)(VM *vm);
     void (*op_endblock)(VM *vm);
@@ -211,9 +212,12 @@ static inline void run_vm(VM *vm, const Backend *backend) {
                 if (backend->op_return) backend->op_return(vm);
                 break;
 
-            case OP_WHILE:
-                if (backend->op_while) backend->op_while(vm);
+            case OP_WHILE: {
+                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                word cond_ip = vm->code[vm->ip++];
+                if (backend->op_while) backend->op_while(vm, cond_ip);
                 break;
+            }
             case OP_IF:
                 if (backend->op_if) backend->op_if(vm);
                 break;
@@ -243,23 +247,24 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 
 // helpers for each op
 #define __push(imm) p = emit1(prog, p, OP_PUSH, imm)
-#define __add()    p = emit0(prog, p, OP_ADD)
-#define __sub()    p = emit0(prog, p, OP_SUB)
-#define __mul()    p = emit0(prog, p, OP_MUL)
-#define __div()    p = emit0(prog, p, OP_DIV)
+#define __add    p = emit0(prog, p, OP_ADD)
+#define __sub    p = emit0(prog, p, OP_SUB)
+#define __mul    p = emit0(prog, p, OP_MUL)
+#define __div    p = emit0(prog, p, OP_DIV)
 #define __move(imm) p = emit1(prog, p, OP_MOVE, imm)
-#define __load()  p = emit0(prog, p, OP_LOAD)
-#define __store() p = emit0(prog, p, OP_STORE)
-#define __print()  p = emit0(prog, p, OP_PRINT)
-#define __halt()   p = emit0(prog, p, OP_HALT)
+#define __load  p = emit0(prog, p, OP_LOAD)
+#define __store p = emit0(prog, p, OP_STORE)
+#define __print  p = emit0(prog, p, OP_PRINT)
+#define __halt   p = emit0(prog, p, OP_HALT)
 
 /* function / control flow emit helpers */
 #define __func(idx) p = emit1(prog, p, OP_FUNCTION, idx)
 #define __call(idx)     p = emit1(prog, p, OP_CALL, idx)
-#define __ret()      p = emit0(prog, p, OP_RETURN)
-#define __while_()       p = emit0(prog, p, OP_WHILE)
-#define __if()          p = emit0(prog, p, OP_IF)
-#define __else()        p = emit0(prog, p, OP_ELSE)
-#define __end()        p = emit0(prog, p, OP_ENDBLOCK)
+#define __ret      p = emit0(prog, p, OP_RETURN)
+#define __label(name) size_t __lbl_##name = p
+#define __while_label(name) p = emit1(prog, p, OP_WHILE, (word)__lbl_##name)
+#define __if          p = emit0(prog, p, OP_IF)
+#define __else        p = emit0(prog, p, OP_ELSE)
+#define __end        p = emit0(prog, p, OP_ENDBLOCK)
 
 #endif // VM_H

@@ -205,8 +205,12 @@ static inline void interp_endblock(VM *vm) {
     }
 }
 
-static inline void interp_while(VM *vm) {
-    /* simple while: pop condition, if zero skip, else push loop marker. Full re-evaluation on ENDBLOCK not implemented */
+static inline void interp_while(VM *vm, word cond_ip) {
+    /* robust while: the cond_ip immediate points to the first instruction that
+       computes the loop condition (may be multiple ops). The condition code has
+       already executed, so pop its result and decide. If non-zero, push a WHILE
+       marker storing cond_ip so ENDBLOCK can jump back to re-evaluate; otherwise
+       skip the loop body. */
     word cond = vm_pop(vm);
     if (cond == 0) {
         /* skip to ENDBLOCK */
@@ -227,10 +231,10 @@ static inline void interp_while(VM *vm) {
         }
         vm->ip = vm->code_len;
     } else {
-        /* enter loop: push WHILE marker with ip set to current ip so ENDBLOCK can jump back */
+        /* enter loop: push WHILE marker that stores the cond_ip provided by the emitter */
         assert(vm->block_sp < 256 && "block stack overflow");
         vm->block_stack[vm->block_sp].type = OP_WHILE;
-        vm->block_stack[vm->block_sp].ip = vm->ip;
+        vm->block_stack[vm->block_sp].ip = (size_t)cond_ip;
         vm->block_sp++;
     }
 }
