@@ -408,15 +408,22 @@ static void tac_while(VM *vm, word cond_ip) {
             cond_label = tac_new_label(s);
             tac_insert_label_at_idx(s, (size_t)map_idx, cond_label);
         } else {
-            fprintf(stderr, "[tac_while] vm_ip %zu had no mapping (map_idx=%d)\n", cond_vm_ip, map_idx);
+            if (TAC_DEBUG) fprintf(stderr, "[tac_while] vm_ip %zu had no mapping (map_idx=%d)\n", cond_vm_ip, map_idx);
         }
     } else {
-        fprintf(stderr, "[tac_while] no vm map or vm_ip out of range: vm_code_len=%zu cond_vm_ip=%zu\n", s->vm_code_len, cond_vm_ip);
+        if (TAC_DEBUG) fprintf(stderr, "[tac_while] no vm map or vm_ip out of range: vm_code_len=%zu cond_vm_ip=%zu\n", s->vm_code_len, cond_vm_ip);
     }
     if (cond_label < 0) {
         /* fallback: create a fresh cond label (will be placed later), but best-effort mapping failed */
         cond_label = tac_new_label(s);
-        fprintf(stderr, "[tac_while] fallback cond_label L%d\n", cond_label);
+        if (TAC_DEBUG) fprintf(stderr, "[tac_while] fallback cond_label L%d\n", cond_label);
+    }
+
+    /* ensure we remember which TAC label corresponds to the condition VM ip so ENDBLOCK or other passes
+       can reliably jump back to it. vm_ip_to_tac_label is keyed by vm_ip, so attach the cond_label there. */
+    if (s->vm_ip_to_tac_label && cond_vm_ip < s->vm_code_len) {
+        s->vm_ip_to_tac_label[cond_vm_ip] = cond_label;
+        if (TAC_DEBUG) fprintf(stderr, "[tac_while] vm_ip[%zu] -> L%d\n", cond_vm_ip, cond_label);
     }
 
     int end_label = tac_new_label(s);
@@ -436,8 +443,24 @@ static void tac_endblock(VM *vm) {
     assert(s->block_sp > 0 && "ENDBLOCK without block");
     tac_block_entry b = s->block_stack[--s->block_sp];
     if (b.type == OP_WHILE) {
-        /* at end of while, jump back to start (stored cond_label) and emit end label */
-        tac_emit_jmp(s, b.start_label);
+        /* at end of while, jump back to start (prefer the stored cond label in the block entry).
+           If the block entry doesn't have a valid start_label, fall back to scanning the
+           vm_ip_to_tac_label map for any associated label (development-time fallback guarded by TAC_DEBUG).
+           Finally assert that we found a label to avoid silent mis-compilation. */
+        int target_label = b.start_label;
+        if (target_label <= 0 && s->vm_ip_to_tac_label && s->vm_code_len) {
+            /* scan vm_ip->label map for a candidate (best-effort fallback) */
+            for (size_t i = 0; i < s->vm_code_len; ++i) {
+                if (s->vm_ip_to_tac_label[i] > 0) {
+                    target_label = s->vm_ip_to_tac_label[i];
+                    if (TAC_DEBUG) fprintf(stderr, "[tac_endblock] fallback: using vm_ip[%zu] -> L%d as cond label\n", i, target_label);
+                    break;
+                }
+            }
+        }
+        /* be strict in development to catch missing mappings */
+        assert(target_label > 0 && "ENDBLOCK: missing condition label for WHILE");
+        tac_emit_jmp(s, target_label);
         tac_emit_label(s, b.end_label);
     } else if (b.type == OP_IF || b.type == OP_ELSE) {
         /* just emit end label */
