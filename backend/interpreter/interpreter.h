@@ -49,7 +49,7 @@ static inline void interp_div(VM *vm) {
 
 static inline void interp_print(VM *vm) {
     word value = vm_pop(vm);
-    printf("%li\n", value);
+    printf(WORD_FMT, value);
 }
 
 static inline void inter_setup(VM *vm) {}

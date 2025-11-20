@@ -61,7 +61,7 @@ static inline void tac_emit(tac_prog *t, tac_instr instr) {
 
 // --- TAC backend functions ---
 static void tac_setup(VM *vm) {
-    tac_backend_state *s = malloc(sizeof(tac_backend_state));
+    tac_backend_state *s = (tac_backend_state*)malloc(sizeof(tac_backend_state));
     s->sp = 0;
     s->next_temp = 0;
     tac_init(&s->prog);
@@ -111,13 +111,13 @@ static void tac_print(VM *vm) {
 // --- TAC backend struct ---
 static const Backend TAC_BACKEND = {
     .setup   = tac_setup,
+    .finalize= tac_finalize,
     .op_push = tac_push,
     .op_add  = tac_add,
     .op_sub  = tac_sub,
     .op_mul  = tac_mul,
     .op_div  = tac_div,
     .op_print= tac_print,
-    .finalize= tac_finalize
 };
 
 // --- Dump TAC ---
@@ -125,7 +125,7 @@ static inline void tac_dump(const tac_prog *t) {
     for (size_t i = 0; i < t->count; i++) {
         const tac_instr *instr = &t->code[i];
         switch(instr->op) {
-            case TAC_CONST: printf("t%d = %ld\n", instr->dst, instr->imm); break;
+            case TAC_CONST: printf("t%d = " WORD_FMT, instr->dst, instr->imm); break;
             case TAC_ADD:   printf("t%d = t%d + t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_SUB:   printf("t%d = t%d - t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_MUL:   printf("t%d = t%d * t%d\n", instr->dst, instr->lhs, instr->rhs); break;

@@ -12,11 +12,22 @@
 #define STACK_SIZE 1024
 #endif
 
-#ifndef WORD_SIZE
-#define WORD_SIZE int64_t
+#ifndef WORD_BITS
+#define WORD_BITS 64
 #endif
 
-typedef WORD_SIZE word;
+#include <stdint.h>
+#include <inttypes.h>
+
+#if WORD_BITS == 64
+typedef int64_t word;
+#define WORD_FMT "%li\n"
+#elif WORD_BITS == 32
+typedef int32_t word;
+#define WORD_FMT "%i\n"
+#else
+#error "WORD_BITS must be 32 or 64"
+#endif
 
 typedef enum {
     OP_NOP = 0,
@@ -120,7 +131,7 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 
 // helpers for setup
 #define __init(size) \
-    word prog[size]; \
+    static word prog[size]; \
     size_t p = 0;
 
 #define __end VM vm = { .code = prog, .code_len = p, .ip = 0, .sp = 0, }; return vm;

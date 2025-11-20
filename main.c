@@ -1,8 +1,13 @@
+// VM config
 #define STACK_SIZE 1024
-#define WORD_SIZE int64_t
+#define WORD_BITS 64
 #define BACKEND INTERPRETER_BACKEND
+
+// include backends
 #include "backend/interpreter/interpreter.h"
 #include "backend/tac/tac.h"
+
+// include program
 #include "program.c"
 
 int main() {
