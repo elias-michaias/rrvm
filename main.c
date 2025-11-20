@@ -7,7 +7,7 @@
 
 #define BACKEND INTERPRETER_BACKEND
 
-void run() {
+VM program() {
 
     __init(64);
 
@@ -21,6 +21,12 @@ void run() {
 
     __end;
 
+    return vm;
+}
+
+int main() {
+    VM vm = program();
+
     run_vm(&vm, &BACKEND);
 
     if(&BACKEND == &TAC_BACKEND) {
@@ -29,9 +35,5 @@ void run() {
     }
 
     if (BACKEND.finalize) BACKEND.finalize(&vm, 0);
-}
-
-int main() {
-    run();
     return 0;
 }
