@@ -5,18 +5,18 @@ VM program() {
 
     /* function 0: push constants 7 and 35 and return their sum */
     __func(0);
-    __push(7);
-    __push(35);
-    __add;
-    __ret;
+      __push(7);
+      __push(35);
+      __add;
+      __ret;
     __end;
 
     /* function 1: push constants 5 and 3 and return their product */
     __func(1);
-    __push(5);
-    __push(3);
-    __mul;
-    __ret;
+      __push(5);
+      __push(3);
+      __mul;
+      __ret;
     __end;
 
     /* main: call functions, demonstrate if/else and a do-while loop */
