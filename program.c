@@ -55,5 +55,5 @@ VM program() {
 
     __halt;
 
-    __fin
+    __fin;
 }
