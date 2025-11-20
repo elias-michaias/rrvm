@@ -23,6 +23,14 @@ typedef enum {
     TAC_STORE,
     TAC_PRINT,
 
+    /* pointer / reference operations */
+    TAC_DEREF, /* lhs = pointer temp, dst = result temp (load from tape/slot) */
+    TAC_REFER, /* lhs = value temp, dst = pointer temp (create a reference) */
+    TAC_WHERE, /* lhs = pointer temp, dst = result temp (get address/index) */
+    TAC_OFFSET,/* lhs = pointer temp, rhs = offset temp, dst = result pointer temp */
+    TAC_INDEX, /* lhs = pointer temp, rhs = index/temp, dst = result temp (load from indexed slot) */
+    TAC_SET,   /* lhs = pointer/temp (target), rhs = value temp (source) -> store */
+
     /* control-flow / labels / calls */
     TAC_LABEL, /* imm = label id */
     TAC_JMP,   /* imm = target label */
@@ -47,7 +55,7 @@ typedef struct {
 
 // --- TAC backend state ---
 
-typedef struct { OpCode type; int start_label; int else_label; int end_label; } tac_block_entry;
+typedef struct { OpCode type; int start_label; int else_label; int end_label; /* VM ip (size_t) for the condition start; (size_t)-1 if not set */ size_t cond_vm_ip; } tac_block_entry;
 
 typedef struct {
     tac_prog prog;
@@ -258,6 +266,106 @@ static void tac_print(VM *vm) {
     tac_emit(&s->prog, (tac_instr){.op=TAC_PRINT, .lhs=val});
 }
 
+// --- Pointer-op lowering helpers (VM -> TAC) ---
+/*
+ * Lowering strategy for pointer ops to TAC (explicit SSA temps) — strict explicit-only model.
+ *
+ * All pointer/value-producing ops must consume and produce explicit temps on the TAC virtual
+ * stack. Implicit 'tp' fallbacks have been removed. Missing temps are treated as programming
+ * errors and assert during TAC emission to catch upstream lowering bugs early.
+ */
+static void tac_deref(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* explicit pointer path only: require a pointer temp on the virtual stack */
+    assert(s->sp >= 1 && "tac_deref: missing pointer temp on virtual stack");
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_DEREF, .lhs=lhs, .dst=dst});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_refer(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* explicit value -> pointer: require a value temp on the virtual stack */
+    assert(s->sp >= 1 && "tac_refer: missing value temp on virtual stack");
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_REFER, .lhs=lhs, .dst=dst});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_where(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* produce an explicit address/temp */
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_WHERE, .dst=dst});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_offset(VM *vm, word imm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip >= 2 ? vm->ip - 2 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* explicit pointer path only: require a pointer temp on the virtual stack */
+    assert(s->sp >= 1 && "tac_offset: missing pointer temp on virtual stack");
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_OFFSET, .lhs=lhs, .dst=dst, .imm=imm});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_index(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* require pointer and index temps on the virtual stack */
+    assert(s->sp >= 2 && "tac_index: missing pointer/index temps on virtual stack");
+    int rhs = s->stack[--s->sp];
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_INDEX, .lhs=lhs, .rhs=rhs, .dst=dst});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_set(VM *vm, word imm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip >= 2 ? vm->ip - 2 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    /* create a temp for the immediate value */
+    int valtmp = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_CONST, .dst=valtmp, .imm=imm});
+
+    /* Prefer using an explicit pointer temp from the virtual stack. If none is present,
+       materialize the current pointer as a temp via WHERE and push it. We deliberately do
+       not pop the pointer temp for SET so the pointer remains available for subsequent
+       pointer ops (e.g. DEREF/REFER), matching VM semantics where the pointer itself is not
+       consumed by a store. */
+    int lhs;
+    if (s->sp >= 1) {
+        /* peek top-of-stack pointer temp without popping */
+        lhs = s->stack[s->sp - 1];
+    } else {
+        lhs = s->next_temp++;
+        tac_emit(&s->prog, (tac_instr){.op=TAC_WHERE, .dst=lhs});
+        /* push the materialized pointer temp onto the virtual stack */
+        s->stack[s->sp++] = lhs;
+    }
+
+    tac_emit(&s->prog, (tac_instr){.op=TAC_SET, .lhs=lhs, .rhs=valtmp});
+}
+
 // --- New control-flow emit helpers ---
 static inline int tac_new_label(tac_backend_state *s) {
     return s->label_counter++;
@@ -327,7 +435,7 @@ static void tac_function(VM *vm, word func_index) {
     s->func_label[idx] = lbl;
     tac_emit_label(s, lbl);
     /* push a FUNCTION block so ENDBLOCK can pop it safely */
-    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_FUNCTION, .start_label = lbl, .else_label = 0, .end_label = 0 };
+    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_FUNCTION, .start_label = lbl, .else_label = 0, .end_label = 0, .cond_vm_ip = (size_t)-1 };
 }
 
 static void tac_call(VM *vm, word func_index) {
@@ -370,7 +478,7 @@ static void tac_if(VM *vm) {
     /* emit conditional jump to else */
     tac_emit_jz(s, cond, else_label);
     /* push block info so ELSE/ENDBLOCK can emit labels */
-    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_IF, .start_label = 0, .else_label = else_label, .end_label = end_label };
+    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_IF, .start_label = 0, .else_label = else_label, .end_label = end_label, .cond_vm_ip = (size_t)-1 };
 }
 
 static void tac_else(VM *vm) {
@@ -432,7 +540,7 @@ static void tac_while(VM *vm, word cond_ip) {
     /* emit body start label */
     int body_label = tac_new_label(s);
     tac_emit_label(s, body_label);
-    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_WHILE, .start_label = cond_label, .else_label = 0, .end_label = end_label };
+    s->block_stack[s->block_sp++] = (tac_block_entry){ .type = OP_WHILE, .start_label = cond_label, .else_label = 0, .end_label = end_label, .cond_vm_ip = cond_vm_ip };
 }
 
 static void tac_endblock(VM *vm) {
@@ -488,6 +596,14 @@ static const Backend __TAC = {
     .op_store= tac_store,
     .op_print= tac_print,
 
+    /* pointer/reference hooks */
+    .op_deref = tac_deref,
+    .op_refer = tac_refer,
+    .op_where = tac_where,
+    .op_offset= tac_offset,
+    .op_index = tac_index,
+    .op_set   = tac_set,
+
     /* control/call hooks in declaration order from vm/vm.h */
     .op_function = tac_function,
     .op_call     = tac_call,
@@ -512,6 +628,27 @@ static inline void tac_dump(const tac_prog *t) {
             case TAC_LOAD:  printf("t%d = LOAD\n", instr->dst); break;
             case TAC_STORE: printf("STORE t%d\n", instr->lhs); break;
             case TAC_PRINT: printf("PRINT t%d\n", instr->lhs); break;
+
+            /* pointer ops */
+            case TAC_DEREF: /* explicit-only: must have dst/lhs */
+                printf("t%d = DEREF t%d\n", instr->dst, instr->lhs);
+                break;
+            case TAC_REFER: /* explicit-only: must have dst/lhs */
+                printf("t%d = REFER t%d\n", instr->dst, instr->lhs);
+                break;
+            case TAC_WHERE: /* produces an address temp */
+                printf("t%d = WHERE\n", instr->dst);
+                break;
+            case TAC_OFFSET: /* pointer arithmetic */
+                printf("t%d = OFFSET t%d %+" WORD_FMT "\n", instr->dst, instr->lhs, instr->imm);
+                break;
+            case TAC_INDEX: /* indexed load producing a temp */
+                printf("t%d = INDEX t%d [t%d]\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_SET:   /* explicit set: target <- source */
+                printf("SET t%d <- t%d\n", instr->lhs, instr->rhs);
+                break;
+
             case TAC_LABEL: printf("L%d:\n", (int)instr->imm); break;
             case TAC_JMP:   printf("JMP L%d\n", (int)instr->imm); break;
             case TAC_JZ:    printf("JZ t%d -> L%d\n", instr->lhs, (int)instr->imm); break;

@@ -8,7 +8,7 @@
 #include "backend/tac/tac.h"
 
 // include program
-#include "program.c"
+#include "programs/1.c"
 
 int main() {
     VM vm = program();

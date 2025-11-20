@@ -48,6 +48,14 @@ typedef enum {
     OP_STORE,
     OP_PRINT,
 
+    /* pointer/reference related */
+    OP_DEREF, /* pointer-chase: set tp = tape[tp], push old tp to tp_stack */
+    OP_REFER, /* pop tp_stack and restore tp */
+    OP_WHERE, /* push current tp onto stack */
+    OP_OFFSET, /* followed by immediate offset */
+    OP_INDEX, /* shift pointer by value under pointer (tape[tp]) */
+    OP_SET,   /* set register(s) to immediate (distinct from PUSH if desired) */
+
     /* control-flow / functions */
     OP_FUNCTION, /* followed by function index immediate */
     OP_CALL,     /* followed by function index immediate */
@@ -73,6 +81,10 @@ typedef struct {
     /* tape and pointer */
     word tape[TAPE_SIZE];
     int tp;
+
+    /* pointer stack to support nested deref/refer */
+    int tp_stack[TAPE_SIZE];
+    int tp_sp;
 
     /* simple function table (function index -> code ip) */
     size_t functions[256];
@@ -108,6 +120,14 @@ typedef struct Backend {
     void (*op_store)(VM *vm);
     void (*op_print)(VM *vm);
 
+    /* pointer/reference hooks */
+    void (*op_deref)(VM *vm);
+    void (*op_refer)(VM *vm);
+    void (*op_where)(VM *vm);
+    void (*op_offset)(VM *vm, word imm);
+    void (*op_index)(VM *vm);
+    void (*op_set)(VM *vm, word imm);
+
     /* control/call hooks (optional) */
     void (*op_function)(VM *vm, word func_index);
     void (*op_call)(VM *vm, word func_index);
@@ -129,6 +149,17 @@ static inline word vm_pop(VM *vm) {
     return vm->stack[--vm->sp];
 }
 
+/* pointer-stack helpers */
+static inline void vm_push_tp(VM *vm, int tp_val) {
+    assert(vm->tp_sp < TAPE_SIZE && "pointer stack overflow");
+    vm->tp_stack[vm->tp_sp++] = tp_val;
+}
+
+static inline int vm_pop_tp(VM *vm) {
+    assert(vm->tp_sp > 0 && "pointer stack underflow");
+    return vm->tp_stack[--vm->tp_sp];
+}
+
 static inline size_t emit0(word *buf, size_t pos, word op) {
     buf[pos++] = op;
     return pos;
@@ -147,6 +178,7 @@ static inline void run_vm(VM *vm, const Backend *backend) {
     vm->ip = 0;
     vm->sp = 0;
     vm->tp = 0;
+    vm->tp_sp = 0;
     vm->call_sp = 0;
     vm->fp = 0;
     vm->functions_count = 0;
@@ -192,6 +224,31 @@ static inline void run_vm(VM *vm, const Backend *backend) {
             case OP_PRINT:
                 if (backend->op_print) backend->op_print(vm);
                 break;
+
+            case OP_DEREF:
+                if (backend->op_deref) backend->op_deref(vm);
+                break;
+            case OP_REFER:
+                if (backend->op_refer) backend->op_refer(vm);
+                break;
+            case OP_WHERE:
+                if (backend->op_where) backend->op_where(vm);
+                break;
+            case OP_OFFSET: {
+                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                word imm = vm->code[vm->ip++];
+                if (backend->op_offset) backend->op_offset(vm, imm);
+                break;
+            }
+            case OP_INDEX:
+                if (backend->op_index) backend->op_index(vm);
+                break;
+            case OP_SET: {
+                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                word imm = vm->code[vm->ip++];
+                if (backend->op_set) backend->op_set(vm, imm);
+                break;
+            }
 
             case OP_FUNCTION: {
                 assert(vm->ip < vm->code_len && "Unexpected end of code");
@@ -256,6 +313,14 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __store p = emit0(prog, p, OP_STORE)
 #define __print  p = emit0(prog, p, OP_PRINT)
 #define __halt   p = emit0(prog, p, OP_HALT)
+
+// pointer/reference emit helpers
+#define __deref p = emit0(prog, p, OP_DEREF)
+#define __refer p = emit0(prog, p, OP_REFER)
+#define __where p = emit0(prog, p, OP_WHERE)
+#define __offset(imm) p = emit1(prog, p, OP_OFFSET, imm)
+#define __index p = emit0(prog, p, OP_INDEX)
+#define __set(imm) p = emit1(prog, p, OP_SET, imm)
 
 /* function / control flow emit helpers */
 #define __func(idx) p = emit1(prog, p, OP_FUNCTION, idx)

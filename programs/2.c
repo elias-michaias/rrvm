@@ -1,4 +1,4 @@
-#include "vm/vm.h"
+#include "../vm/vm.h"
 
 VM program() {
     __init(256);

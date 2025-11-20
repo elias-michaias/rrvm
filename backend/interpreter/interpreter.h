@@ -239,6 +239,54 @@ static inline void interp_while(VM *vm, word cond_ip) {
     }
 }
 
+static inline void interp_deref(VM *vm) {
+    /* push current tp and set tp = tape[tp] (pointer chase) */
+    vm_push_tp(vm, vm->tp);
+    word new_tp = vm->tape[vm->tp];
+    assert(new_tp >= 0 && (size_t)new_tp < TAPE_SIZE && "DEREF produced invalid tape index");
+    vm->tp = (int)new_tp;
+}
+
+static inline void interp_refer(VM *vm) {
+    /* pop previous tp from the pointer stack and restore */
+    vm->tp = vm_pop_tp(vm);
+}
+
+static inline void interp_where(VM *vm) {
+    /* push the current tp value onto the data stack */
+    vm_push(vm, (word)vm->tp);
+}
+
+static inline void interp_offset(VM *vm, word imm) {
+    /* adjust the tape pointer by signed immediate */
+    if (imm < 0) {
+        size_t step = (size_t)(-imm);
+        assert(vm->tp >= (int)step && "OFFSET underflow");
+        vm->tp -= (int)step;
+    } else {
+        vm->tp += (size_t)imm;
+        assert((size_t)vm->tp < TAPE_SIZE && "OFFSET overflow");
+    }
+}
+
+static inline void interp_index(VM *vm) {
+    /* shift pointer by the value stored at tape[tp] */
+    word delta = vm->tape[vm->tp];
+    if (delta < 0) {
+        size_t step = (size_t)(-delta);
+        assert(vm->tp >= (int)step && "INDEX underflow");
+        vm->tp -= (int)step;
+    } else {
+        vm->tp += (size_t)delta;
+        assert((size_t)vm->tp < TAPE_SIZE && "INDEX overflow");
+    }
+}
+
+static inline void interp_set(VM *vm, word imm) {
+    /* store immediate into tape at current tp */
+    vm->tape[vm->tp] = imm;
+}
+
 static const Backend __INTERPRETER = {
     .setup = inter_setup,
     .finalize = inter_finalize,
@@ -251,6 +299,14 @@ static const Backend __INTERPRETER = {
     .op_load = interp_load,
     .op_store = interp_store,
     .op_print = interp_print,
+
+    /* pointer/reference hooks */
+    .op_deref = interp_deref,
+    .op_refer = interp_refer,
+    .op_where = interp_where,
+    .op_offset = interp_offset,
+    .op_index = interp_index,
+    .op_set = interp_set,
 
     .op_function = interp_function,
     .op_call     = interp_call,
