@@ -73,8 +73,167 @@ static inline void interp_print(VM *vm) {
     printf("%" WORD_FMT "\n", value);
 }
 
-static inline void inter_setup(VM *vm) {}
-static inline void inter_finalize(VM *vm, word imm) {}
+static inline void inter_setup(VM *vm) { /* nothing for now */ }
+
+static inline void inter_finalize(VM *vm, word imm) { /* nothing */ }
+
+/* function recording: record function start ip */
+static inline void interp_function(VM *vm, word func_index) {
+    if ((size_t)func_index >= sizeof(vm->functions)/sizeof(vm->functions[0])) return;
+    /* record the function's start ip */
+    vm->functions[func_index] = vm->ip;
+    if (vm->functions_count <= (size_t)func_index) vm->functions_count = (size_t)func_index + 1;
+    /* skip over the function body at runtime until matching ENDBLOCK */
+    size_t depth = 0;
+    size_t i = vm->ip;
+    while (i < vm->code_len) {
+        OpCode op = (OpCode)vm->code[i++];
+        if (op == OP_FUNCTION || op == OP_IF || op == OP_WHILE) {
+            depth++;
+        } else if (op == OP_ENDBLOCK && depth == 0) {
+            vm->ip = i; /* position after ENDBLOCK */
+            return;
+        } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
+            depth--;
+        } else {
+            /* skip immediates */
+            if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+        }
+    }
+    vm->ip = vm->code_len; /* fallback */
+}
+
+static inline void interp_call(VM *vm, word func_index) {
+    assert((size_t)vm->call_sp < CALL_STACK_SIZE && "call stack overflow");
+    size_t fi = (size_t)func_index;
+    assert(fi < vm->functions_count && "call to unknown function index");
+    /* push return ip and old fp */
+    vm->call_stack[vm->call_sp].return_ip = vm->ip;
+    vm->call_stack[vm->call_sp].old_fp = vm->fp;
+    vm->call_sp++;
+    /* new frame begins at current sp */
+    vm->fp = vm->sp;
+    /* jump to function start */
+    vm->ip = vm->functions[fi];
+}
+
+static inline void interp_return(VM *vm) {
+    assert(vm->call_sp > 0 && "return with empty call stack");
+    word ret = 0;
+    /* if there's a return value on the stack, pop it */
+    if (vm->sp > vm->fp) ret = vm_pop(vm);
+    /* restore frame and return ip */
+    vm->call_sp--;
+    size_t ret_ip = vm->call_stack[vm->call_sp].return_ip;
+    int old_fp = vm->call_stack[vm->call_sp].old_fp;
+    /* tear down locals */
+    vm->sp = vm->fp;
+    vm->fp = old_fp;
+    vm->ip = ret_ip;
+    /* push return value */
+    vm_push(vm, ret);
+}
+
+/* simple block stack entry is defined in vm/vm.h */
+
+static inline void interp_if(VM *vm) {
+    word cond = vm_pop(vm);
+    if (cond == 0) {
+        /* skip to matching ELSE or ENDBLOCK */
+        size_t depth = 0;
+        size_t i = vm->ip;
+        while (i < vm->code_len) {
+            OpCode op = (OpCode)vm->code[i++];
+            if (op == OP_IF || op == OP_WHILE) {
+                depth++;
+            } else if (op == OP_ELSE && depth == 0) {
+                vm->ip = i; /* execute after ELSE */
+                return;
+            } else if (op == OP_ENDBLOCK && depth == 0) {
+                vm->ip = i; /* execute after ENDBLOCK */
+                return;
+            } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
+                depth--;
+            } else {
+                /* if op has immediate, skip it */
+                if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+            }
+        }
+        /* not found -> end execution */
+        vm->ip = vm->code_len;
+    } else {
+        /* enter if: push a marker onto block stack */
+        assert(vm->block_sp < 256 && "block stack overflow");
+        vm->block_stack[vm->block_sp].type = OP_IF;
+        vm->block_stack[vm->block_sp].ip = vm->ip;
+        vm->block_sp++;
+    }
+}
+
+static inline void interp_else(VM *vm) {
+    /* skip to matching ENDBLOCK */
+    size_t depth = 0;
+    size_t i = vm->ip;
+    while (i < vm->code_len) {
+        OpCode op = (OpCode)vm->code[i++];
+        if (op == OP_IF || op == OP_WHILE) {
+            depth++;
+        } else if (op == OP_ENDBLOCK && depth == 0) {
+            vm->ip = i; /* execute after ENDBLOCK */
+            /* pop IF marker if present */
+            if (vm->block_sp > 0) vm->block_sp--;
+            return;
+        } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
+            depth--;
+        } else {
+            if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+        }
+    }
+    vm->ip = vm->code_len;
+}
+
+static inline void interp_endblock(VM *vm) {
+    /* if top of block stack is WHILE, loop back to its ip; otherwise pop marker */
+    if (vm->block_sp > 0) {
+        int top = vm->block_sp - 1;
+        if (vm->block_stack[top].type == OP_WHILE) {
+            /* loop back to condition: set ip to stored ip */
+            vm->ip = vm->block_stack[top].ip;
+        } else {
+            vm->block_sp--;
+        }
+    }
+}
+
+static inline void interp_while(VM *vm) {
+    /* simple while: pop condition, if zero skip, else push loop marker. Full re-evaluation on ENDBLOCK not implemented */
+    word cond = vm_pop(vm);
+    if (cond == 0) {
+        /* skip to ENDBLOCK */
+        size_t depth = 0;
+        size_t i = vm->ip;
+        while (i < vm->code_len) {
+            OpCode op = (OpCode)vm->code[i++];
+            if (op == OP_IF || op == OP_WHILE) {
+                depth++;
+            } else if (op == OP_ENDBLOCK && depth == 0) {
+                vm->ip = i;
+                return;
+            } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
+                depth--;
+            } else {
+                if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+            }
+        }
+        vm->ip = vm->code_len;
+    } else {
+        /* enter loop: push WHILE marker with ip set to current ip so ENDBLOCK can jump back */
+        assert(vm->block_sp < 256 && "block stack overflow");
+        vm->block_stack[vm->block_sp].type = OP_WHILE;
+        vm->block_stack[vm->block_sp].ip = vm->ip;
+        vm->block_sp++;
+    }
+}
 
 static const Backend __INTERPRETER = {
     .setup = inter_setup,
@@ -88,6 +247,14 @@ static const Backend __INTERPRETER = {
     .op_load = interp_load,
     .op_store = interp_store,
     .op_print = interp_print,
+
+    .op_function = interp_function,
+    .op_call     = interp_call,
+    .op_return   = interp_return,
+    .op_while    = interp_while,
+    .op_if       = interp_if,
+    .op_else     = interp_else,
+    .op_endblock = interp_endblock,
 };
 
 #endif // INTERP_H

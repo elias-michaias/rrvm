@@ -1,26 +1,29 @@
 #include "vm/vm.h"
 
 VM program() {
-    // store 7 at tape[0], store 35 at tape[1], then sum them
-    __init(64);
-  
-    // push 7, store -> tape[0]
+    __init(128);
+
+    /* function 0: push constants 7 and 35 and return their sum */
+    __func(0);
     __push(7);
-    __store();
-    // move +1
-    __move(1);
-    // push 35, store -> tape[1]
     __push(35);
-    __store();
-    // move -1 (back to 0)
-    __move(-1);
-    // load tape[0], load tape[1], add, print
-    __load();
-    __move(1);
-    __load();
+    __add();
+    __ret();
+    __end();
+
+    __func(1);
+    __push(5);
+    __push(3);
+    __mul();
+    __ret();
+    __end();
+
+    /* main: call function 0 and print result */
+    __call(0);
+    __call(1);
     __add();
     __print();
     __halt();
 
-    __end;
+    __fin
 }

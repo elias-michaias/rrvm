@@ -1,7 +1,7 @@
 // VM config
 #define STACK_SIZE 1024
 #define WORD_BITS 64
-#define BACKEND __INTERPRETER
+#define BACKEND __TAC
 
 // include backends
 #include "backend/interpreter/interpreter.h"
