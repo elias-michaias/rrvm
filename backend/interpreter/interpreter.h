@@ -76,7 +76,7 @@ static inline void interp_print(VM *vm) {
 static inline void inter_setup(VM *vm) {}
 static inline void inter_finalize(VM *vm, word imm) {}
 
-static const Backend INTERPRETER_BACKEND = {
+static const Backend __INTERPRETER = {
     .setup = inter_setup,
     .finalize = inter_finalize,
     .op_push = interp_push,

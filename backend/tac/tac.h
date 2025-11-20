@@ -145,7 +145,7 @@ static void tac_print(VM *vm) {
 }
 
 // --- TAC backend struct ---
-static const Backend TAC_BACKEND = {
+static const Backend __TAC = {
     .setup   = tac_setup,
     .finalize= tac_finalize,
     .op_push = tac_push,
