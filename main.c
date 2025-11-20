@@ -1,7 +1,7 @@
 // VM config
 #define STACK_SIZE 1024
 #define WORD_BITS 64
-#define BACKEND INTERPRETER_BACKEND
+#define BACKEND TAC_BACKEND
 
 // include backends
 #include "backend/interpreter/interpreter.h"
@@ -15,7 +15,7 @@ int main() {
 
     run_vm(&vm, &BACKEND);
 
-    if(&BACKEND == &TAC_BACKEND) {
+    if (&BACKEND == &TAC_BACKEND) {
       printf("---- TAC Dump ----\n");
       tac_dump(tac_get_prog(&vm));
     }

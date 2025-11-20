@@ -24,6 +24,27 @@ static inline void interp_push(VM *vm, word imm) {
     vm_push(vm, imm);
 }
 
+static inline void interp_move(VM *vm, word imm) {
+    /* move tape pointer by imm (signed) */
+    if (imm < 0) {
+        size_t step = (size_t)(-imm);
+        assert(vm->tp >= step && "Tape pointer underflow");
+        vm->tp -= step;
+    } else {
+        vm->tp += (size_t)imm;
+        assert(vm->tp < TAPE_SIZE && "Tape pointer overflow");
+    }
+}
+
+static inline void interp_load(VM *vm) {
+    vm_push(vm, vm->tape[vm->tp]);
+}
+
+static inline void interp_store(VM *vm) {
+    word val = vm_pop(vm);
+    vm->tape[vm->tp] = val;
+}
+
 static inline void interp_binary(VM *vm, word (*fn)(word, word)) {
     word a = vm_pop(vm);
     word b = vm_pop(vm);
@@ -49,7 +70,7 @@ static inline void interp_div(VM *vm) {
 
 static inline void interp_print(VM *vm) {
     word value = vm_pop(vm);
-    printf(WORD_FMT, value);
+    printf("%" WORD_FMT "\n", value);
 }
 
 static inline void inter_setup(VM *vm) {}
@@ -63,6 +84,9 @@ static const Backend INTERPRETER_BACKEND = {
     .op_sub = interp_sub,
     .op_mul = interp_mul,
     .op_div = interp_div,
+    .op_move = interp_move,
+    .op_load = interp_load,
+    .op_store = interp_store,
     .op_print = interp_print,
 };
 

@@ -4,12 +4,15 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
-#include <stdlib.h>
 #include <string.h>
 
 // vm config
 #ifndef STACK_SIZE
 #define STACK_SIZE 1024
+#endif
+
+#ifndef TAPE_SIZE
+#define TAPE_SIZE 1024
 #endif
 
 #ifndef WORD_BITS
@@ -21,10 +24,10 @@
 
 #if WORD_BITS == 64
 typedef int64_t word;
-#define WORD_FMT "%li\n"
+#define WORD_FMT PRId64
 #elif WORD_BITS == 32
 typedef int32_t word;
-#define WORD_FMT "%i\n"
+#define WORD_FMT PRId32
 #else
 #error "WORD_BITS must be 32 or 64"
 #endif
@@ -36,12 +39,11 @@ typedef enum {
     OP_SUB,
     OP_MUL,
     OP_DIV,
+    OP_MOVE,
+    OP_LOAD,
+    OP_STORE,
     OP_PRINT,
     OP_HALT,
-    // OP_LOAD,
-    // OP_STORE,
-    // OP_JMP,
-    // OP_JZ,
 } OpCode;
 
 typedef struct {
@@ -50,6 +52,11 @@ typedef struct {
     size_t ip;
     word stack[STACK_SIZE];
     int sp;
+
+    /* tape and pointer */
+    word tape[TAPE_SIZE];
+    int tp;
+
     void *user_data; // backend-specific data
 } VM;
 
@@ -61,6 +68,9 @@ typedef struct Backend {
     void (*op_sub)(VM *vm);
     void (*op_mul)(VM *vm);
     void (*op_div)(VM *vm);
+    void (*op_move)(VM *vm, word imm);
+    void (*op_load)(VM *vm);
+    void (*op_store)(VM *vm);
     void (*op_print)(VM *vm);
 } Backend;
 
@@ -91,7 +101,9 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 
     vm->ip = 0;
     vm->sp = 0;
-    
+    vm->tp = 0;
+    memset(vm->tape, 0, sizeof(vm->tape));
+
     while (vm->ip < vm->code_len) {
         OpCode op = (OpCode)vm->code[vm->ip++];
 
@@ -116,11 +128,23 @@ static inline void run_vm(VM *vm, const Backend *backend) {
             case OP_DIV:
                 backend->op_div(vm);
                 break;
+            case OP_MOVE: {
+                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                word imm = vm->code[vm->ip++];
+                backend->op_move(vm, imm);
+                break;
+            }
+            case OP_LOAD:
+                backend->op_load(vm);
+                break;
+            case OP_STORE:
+                backend->op_store(vm);
+                break;
             case OP_PRINT:
                 backend->op_print(vm);
                 break;
             case OP_HALT:
-                break;
+                return;
             default:
                 fprintf(stderr, "Unknown opcode: %d\n", op);
                 exit(1);
@@ -142,6 +166,9 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __sub()    p = emit0(prog, p, OP_SUB)
 #define __mul()    p = emit0(prog, p, OP_MUL)
 #define __div()    p = emit0(prog, p, OP_DIV)
+#define __move(imm) p = emit1(prog, p, OP_MOVE, imm)
+#define __load()  p = emit0(prog, p, OP_LOAD)
+#define __store() p = emit0(prog, p, OP_STORE)
 #define __print()  p = emit0(prog, p, OP_PRINT)
 #define __halt()   p = emit0(prog, p, OP_HALT)
 

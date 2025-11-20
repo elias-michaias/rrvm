@@ -8,11 +8,14 @@
 
 // --- TAC IR ---
 typedef enum {
+    TAC_CONST,
     TAC_ADD,
     TAC_SUB,
     TAC_MUL,
     TAC_DIV,
-    TAC_CONST,
+    TAC_MOVE,
+    TAC_LOAD,
+    TAC_STORE,
     TAC_PRINT
 } TacOp;
 
@@ -36,6 +39,8 @@ typedef struct {
     int stack[STACK_SIZE];
     int sp;
     int next_temp;
+    /* keep a virtual tape pointer for MOVE semantics at TAC construction time (optional) */
+    size_t tp;
 } tac_backend_state;
 
 // --- Helpers ---
@@ -64,6 +69,7 @@ static void tac_setup(VM *vm) {
     tac_backend_state *s = (tac_backend_state*)malloc(sizeof(tac_backend_state));
     s->sp = 0;
     s->next_temp = 0;
+    s->tp = 0;
     tac_init(&s->prog);
     vm->user_data = s;
 }
@@ -101,6 +107,36 @@ static void tac_sub(VM *vm) { tac_binary(vm, TAC_SUB); }
 static void tac_mul(VM *vm) { tac_binary(vm, TAC_MUL); }
 static void tac_div(VM *vm) { tac_binary(vm, TAC_DIV); }
 
+static void tac_move(VM *vm, word imm) {
+    tac_backend_state *s = tac_state(vm);
+    /* record a MOVE with immediate; no stack change */
+    tac_emit(&s->prog, (tac_instr){.op=TAC_MOVE, .imm=imm});
+    /* update virtual tp if needed */
+    if (imm < 0) {
+        size_t step = (size_t)(-imm);
+        assert(s->tp >= step && "TAC virtual tape pointer underflow");
+        s->tp -= step;
+    } else {
+        s->tp += (size_t)imm;
+        assert(s->tp < TAPE_SIZE && "TAC virtual tape pointer overflow");
+    }
+}
+
+static void tac_store(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    assert(s->sp >= 1);
+    int src = s->stack[--s->sp];
+    /* emit store, using lhs to hold the source temp */
+    tac_emit(&s->prog, (tac_instr){.op=TAC_STORE, .lhs=src});
+}
+
+static void tac_load(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_LOAD, .dst=dst});
+    s->stack[s->sp++] = dst;
+}
+
 static void tac_print(VM *vm) {
     tac_backend_state *s = tac_state(vm);
     assert(s->sp >= 1);
@@ -117,6 +153,9 @@ static const Backend TAC_BACKEND = {
     .op_sub  = tac_sub,
     .op_mul  = tac_mul,
     .op_div  = tac_div,
+    .op_move = tac_move,
+    .op_load = tac_load,
+    .op_store= tac_store,
     .op_print= tac_print,
 };
 
@@ -125,11 +164,14 @@ static inline void tac_dump(const tac_prog *t) {
     for (size_t i = 0; i < t->count; i++) {
         const tac_instr *instr = &t->code[i];
         switch(instr->op) {
-            case TAC_CONST: printf("t%d = " WORD_FMT, instr->dst, instr->imm); break;
+            case TAC_CONST: printf("t%d = %" WORD_FMT "\n", instr->dst, instr->imm); break;
             case TAC_ADD:   printf("t%d = t%d + t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_SUB:   printf("t%d = t%d - t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_MUL:   printf("t%d = t%d * t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_DIV:   printf("t%d = t%d / t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_MOVE:  printf("MOVE %" WORD_FMT "\n", instr->imm); break;
+            case TAC_LOAD:  printf("t%d = LOAD\n", instr->dst); break;
+            case TAC_STORE: printf("STORE t%d\n", instr->lhs); break;
             case TAC_PRINT: printf("PRINT t%d\n", instr->lhs); break;
         }
     }
