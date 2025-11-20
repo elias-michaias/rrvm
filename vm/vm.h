@@ -262,7 +262,7 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __call(idx)     p = emit1(prog, p, OP_CALL, idx)
 #define __ret      p = emit0(prog, p, OP_RETURN)
 #define __label(name) size_t __lbl_##name = p
-#define __while_label(name) p = emit1(prog, p, OP_WHILE, (word)__lbl_##name)
+#define __while(name) p = emit1(prog, p, OP_WHILE, (word)__lbl_##name)
 #define __if          p = emit0(prog, p, OP_IF)
 #define __else        p = emit0(prog, p, OP_ELSE)
 #define __end        p = emit0(prog, p, OP_ENDBLOCK)

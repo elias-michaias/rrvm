@@ -41,9 +41,9 @@ VM program() {
     __store;   /* store counter at tape[tp] */
 
     /* condition: load counter and test */
-    __label(cond);
+    __label(cond1);
     __load;
-    __while_label(cond);
+    __while(cond1);
       /* body: load counter, print it, decrement and store back */
       __load;    /* push counter */
       __print;
