@@ -347,6 +347,7 @@ static const Backend __INTERPRETER = {
     .op_sub = interp_sub,
     .op_mul = interp_mul,
     .op_div = interp_div,
+    .op_rem = interp_rem,
     .op_move = interp_move,
     .op_load = interp_load,
     .op_store = interp_store,
@@ -359,7 +360,6 @@ static const Backend __INTERPRETER = {
     .op_offset = interp_offset,
     .op_index = interp_index,
     .op_set = interp_set,
-    .op_rem = interp_rem,
 
     .op_function = interp_function,
     .op_call     = interp_call,
