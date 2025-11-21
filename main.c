@@ -28,7 +28,9 @@ int main() {
 
       if (&BACKEND == &__TAC) {
         tac_dump(tac_get_prog(&vm[i]));
-        tac_dump_file(tac_get_prog(&vm[i]), "build/out.pl");
+        char _tac_out_path[64];
+        snprintf(_tac_out_path, sizeof(_tac_out_path), "opt/tmp/raw/%d.pl", i+1);
+        tac_dump_file(tac_get_prog(&vm[i]), _tac_out_path);
       }
 
       if (BACKEND.finalize) BACKEND.finalize(&vm[i], 0);
