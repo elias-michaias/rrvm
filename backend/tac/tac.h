@@ -682,71 +682,217 @@ static const Backend __TAC = {
 
 // --- Dump TAC ---
 static inline void tac_dump(const tac_prog *t) {
+    /* Emit TAC as Prolog facts to stdout. Each instruction becomes a fact ending with a dot. */
     for (size_t i = 0; i < t->count; i++) {
         const tac_instr *instr = &t->code[i];
-        switch(instr->op) {
-            case TAC_CONST: printf("t%d = %" WORD_FMT "\n", instr->dst, instr->imm); break;
-            case TAC_ADD:   printf("t%d = t%d + t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_SUB:   printf("t%d = t%d - t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_MUL:   printf("t%d = t%d * t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_DIV:   printf("t%d = t%d / t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_REM:   printf("t%d = t%d %% t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-
-            /* bitwise / logical / shifts */
-            case TAC_BITAND: printf("t%d = t%d & t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_BITOR:  printf("t%d = t%d | t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_BITXOR: printf("t%d = t%d ^ t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_LSH:    printf("t%d = t%d << t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_LRSH:   printf("t%d = (u)t%d >> t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_ARSH:   printf("t%d = t%d >> t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-
-            /* logical binary ops (produce 0/1) */
-            case TAC_OR:     printf("t%d = t%d || t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_AND:    printf("t%d = t%d && t%d\n", instr->dst, instr->lhs, instr->rhs); break;
-            case TAC_NOT:    printf("t%d = !t%d\n", instr->dst, instr->lhs); break;
-            case TAC_GEZ:    printf("t%d = t%d >= 0\n", instr->dst, instr->lhs); break;
-
-            case TAC_MOVE:  printf("MOVE %" WORD_FMT "\n", instr->imm); break;
-            case TAC_LOAD:  printf("t%d = LOAD\n", instr->dst); break;
-            case TAC_STORE: printf("STORE t%d\n", instr->lhs); break;
-            case TAC_PRINT: printf("PRINT t%d\n", instr->lhs); break;
-
-            /* pointer ops */
-            case TAC_DEREF: /* explicit-only: must have dst/lhs */
-                printf("t%d = DEREF t%d\n", instr->dst, instr->lhs);
+        switch (instr->op) {
+            case TAC_CONST:
+                printf("const(t%d, %" WORD_FMT ").\n", instr->dst, instr->imm);
                 break;
-            case TAC_REFER: /* explicit-only: must have dst/lhs */
-                printf("t%d = REFER t%d\n", instr->dst, instr->lhs);
+            case TAC_ADD:
+                printf("add(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
                 break;
-            case TAC_WHERE: /* produces an address temp */
-                printf("t%d = WHERE\n", instr->dst);
+            case TAC_SUB:
+                printf("sub(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
                 break;
-            case TAC_OFFSET: /* pointer arithmetic */
-                printf("t%d = OFFSET t%d %+" WORD_FMT "\n", instr->dst, instr->lhs, instr->imm);
+            case TAC_MUL:
+                printf("mul(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
                 break;
-            case TAC_INDEX: /* indexed load producing a temp */
-                printf("t%d = INDEX t%d [t%d]\n", instr->dst, instr->lhs, instr->rhs);
+            case TAC_DIV:
+                printf("div(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
                 break;
-            case TAC_SET:   /* explicit set: target <- source */
-                printf("SET t%d <- t%d\n", instr->lhs, instr->rhs);
+            case TAC_REM:
+                printf("rem(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
                 break;
-
-            case TAC_LABEL: printf("L%d:\n", (int)instr->imm); break;
-            case TAC_JMP:   printf("JMP L%d\n", (int)instr->imm); break;
-            case TAC_JZ:    printf("JZ t%d -> L%d\n", instr->lhs, (int)instr->imm); break;
+            case TAC_BITAND:
+                printf("bitand(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_BITOR:
+                printf("bitor(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_BITXOR:
+                printf("bitxor(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_LSH:
+                printf("lsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_LRSH:
+                printf("lrsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_ARSH:
+                printf("arsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_OR:
+                printf("or(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_AND:
+                printf("and(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_NOT:
+                printf("not(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_GEZ:
+                printf("gez(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_MOVE:
+                printf("move(%" WORD_FMT ").\n", instr->imm);
+                break;
+            case TAC_LOAD:
+                printf("load(t%d).\n", instr->dst);
+                break;
+            case TAC_STORE:
+                printf("store(t%d).\n", instr->lhs);
+                break;
+            case TAC_PRINT:
+                printf("print(t%d).\n", instr->lhs);
+                break;
+            case TAC_DEREF:
+                printf("deref(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_REFER:
+                printf("refer(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_WHERE:
+                printf("where(t%d).\n", instr->dst);
+                break;
+            case TAC_OFFSET:
+                printf("offset(t%d, t%d, %" WORD_FMT ").\n", instr->dst, instr->lhs, instr->imm);
+                break;
+            case TAC_INDEX:
+                printf("index(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_SET:
+                printf("set(t%d, t%d).\n", instr->lhs, instr->rhs);
+                break;
+            case TAC_LABEL:
+                printf("label(%d).\n", (int)instr->imm);
+                break;
+            case TAC_JMP:
+                printf("jmp(%d).\n", (int)instr->imm);
+                break;
+            case TAC_JZ:
+                printf("jz(t%d, %d).\n", instr->lhs, (int)instr->imm);
+                break;
             case TAC_CALL:
-                if (instr->dst >= 0) {
-                    /* call with a destination temp */
-                    printf("t%d = CALL %d\n", instr->dst, (int)instr->imm);
-                } else {
-                    /* call without destination */
-                    printf("CALL %d\n", (int)instr->imm);
-                }
+                if (instr->dst >= 0) printf("call(%d, t%d).\n", (int)instr->imm, instr->dst);
+                else printf("call(%d).\n", (int)instr->imm);
                 break;
-            case TAC_RET:   printf("RET\n"); break;
-            default: printf("<unknown t-op %d>\n", instr->op); break;
+            case TAC_RET:
+                printf("ret.\n");
+                break;
+            default:
+                printf("unknown(%d).\n", instr->op);
+                break;
         }
     }
+}
+
+static inline void tac_dump_file(const tac_prog *t, const char *path) {
+    FILE *out = fopen(path, "w");
+    if (!out) return;
+    for (size_t i = 0; i < t->count; i++) {
+        const tac_instr *instr = &t->code[i];
+        switch (instr->op) {
+            case TAC_CONST:
+                fprintf(out, "const(t%d, %" WORD_FMT ").\n", instr->dst, instr->imm);
+                break;
+            case TAC_ADD:
+                fprintf(out, "add(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_SUB:
+                fprintf(out, "sub(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_MUL:
+                fprintf(out, "mul(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_DIV:
+                fprintf(out, "div(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_REM:
+                fprintf(out, "rem(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_BITAND:
+                fprintf(out, "bitand(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_BITOR:
+                fprintf(out, "bitor(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_BITXOR:
+                fprintf(out, "bitxor(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_LSH:
+                fprintf(out, "lsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_LRSH:
+                fprintf(out, "lrsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_ARSH:
+                fprintf(out, "arsh(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_OR:
+                fprintf(out, "or(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_AND:
+                fprintf(out, "and(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_NOT:
+                fprintf(out, "not(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_GEZ:
+                fprintf(out, "gez(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_MOVE:
+                fprintf(out, "move(%" WORD_FMT ").\n", instr->imm);
+                break;
+            case TAC_LOAD:
+                fprintf(out, "load(t%d).\n", instr->dst);
+                break;
+            case TAC_STORE:
+                fprintf(out, "store(t%d).\n", instr->lhs);
+                break;
+            case TAC_PRINT:
+                fprintf(out, "print(t%d).\n", instr->lhs);
+                break;
+            case TAC_DEREF:
+                fprintf(out, "deref(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_REFER:
+                fprintf(out, "refer(t%d, t%d).\n", instr->dst, instr->lhs);
+                break;
+            case TAC_WHERE:
+                fprintf(out, "where(t%d).\n", instr->dst);
+                break;
+            case TAC_OFFSET:
+                fprintf(out, "offset(t%d, t%d, %" WORD_FMT ").\n", instr->dst, instr->lhs, instr->imm);
+                break;
+            case TAC_INDEX:
+                fprintf(out, "index(t%d, t%d, t%d).\n", instr->dst, instr->lhs, instr->rhs);
+                break;
+            case TAC_SET:
+                fprintf(out, "set(t%d, t%d).\n", instr->lhs, instr->rhs);
+                break;
+            case TAC_LABEL:
+                fprintf(out, "label(%d).\n", (int)instr->imm);
+                break;
+            case TAC_JMP:
+                fprintf(out, "jmp(%d).\n", (int)instr->imm);
+                break;
+            case TAC_JZ:
+                fprintf(out, "jz(t%d, %d).\n", instr->lhs, (int)instr->imm);
+                break;
+            case TAC_CALL:
+                if (instr->dst >= 0) fprintf(out, "call(%d, t%d).\n", (int)instr->imm, instr->dst);
+                else fprintf(out, "call(%d).\n", (int)instr->imm);
+                break;
+            case TAC_RET:
+                fprintf(out, "ret.\n");
+                break;
+            default:
+                fprintf(out, "unknown(%d).\n", instr->op);
+                break;
+        }
+    }
+    fclose(out);
 }
 
 // --- Access TAC program ---

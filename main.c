@@ -28,6 +28,7 @@ int main() {
 
       if (&BACKEND == &__TAC) {
         tac_dump(tac_get_prog(&vm[i]));
+        tac_dump_file(tac_get_prog(&vm[i]), "build/out.pl");
       }
 
       if (BACKEND.finalize) BACKEND.finalize(&vm[i], 0);
