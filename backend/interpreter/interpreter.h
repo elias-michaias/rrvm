@@ -287,6 +287,58 @@ static inline void interp_set(VM *vm, word imm) {
     vm->tape[vm->tp] = imm;
 }
 
+/* --- NEW scalar multi/bitwise/logical handlers (stack-oriented) --- */
+
+/* remainder: pops two values a,b and pushes b % a */
+static inline word rem_fn(word a, word b) {
+    (void)a; (void)b; /* keep signature consistent with interp_binary usage */
+    /* interp_binary will call rem_fn(b,a) so implement as a % b in that order */
+    return 0; /* placeholder, never called directly */
+}
+
+static inline word rem_impl(word a, word b) {
+    assert(b != 0 && "Modulo by zero");
+    return a % b;
+}
+
+static inline void interp_rem(VM *vm) {
+    interp_binary(vm, rem_impl);
+}
+
+/* logical OR/AND as binary ops producing 0/1 */
+static inline word or_impl(word a, word b) { return (a || b) ? 1 : 0; }
+static inline word and_impl(word a, word b) { return (a && b) ? 1 : 0; }
+static inline void interp_orassign(VM *vm) { interp_binary(vm, or_impl); }
+static inline void interp_andassign(VM *vm) { interp_binary(vm, and_impl); }
+
+/* NOT: unary */
+static inline void interp_not(VM *vm) {
+    word v = vm_pop(vm);
+    vm_push(vm, v ? 0 : 1);
+}
+
+/* bitwise binary ops */
+static inline word bitand_impl(word a, word b) { return a & b; }
+static inline word bitor_impl(word a, word b) { return a | b; }
+static inline word bitxor_impl(word a, word b) { return a ^ b; }
+static inline void interp_bitand(VM *vm) { interp_binary(vm, bitand_impl); }
+static inline void interp_bitor(VM *vm) { interp_binary(vm, bitor_impl); }
+static inline void interp_bitxor(VM *vm) { interp_binary(vm, bitxor_impl); }
+
+/* shifts: a << b, logical/right zero-extend, arithmetic/right sign-extend */
+static inline word lsh_impl(word a, word b) { return a << b; }
+static inline word lrsh_impl(word a, word b) { return (word)(((uint64_t)a) >> (uint64_t)b); }
+static inline word arsh_impl(word a, word b) { return a >> b; }
+static inline void interp_lsh(VM *vm) { interp_binary(vm, lsh_impl); }
+static inline void interp_lrsh(VM *vm) { interp_binary(vm, lrsh_impl); }
+static inline void interp_arsh(VM *vm) { interp_binary(vm, arsh_impl); }
+
+/* GEZ: unary test */
+static inline void interp_gez(VM *vm) {
+    word v = vm_pop(vm);
+    vm_push(vm, v >= 0 ? 1 : 0);
+}
+
 static const Backend __INTERPRETER = {
     .setup = inter_setup,
     .finalize = inter_finalize,
@@ -307,6 +359,7 @@ static const Backend __INTERPRETER = {
     .op_offset = interp_offset,
     .op_index = interp_index,
     .op_set = interp_set,
+    .op_rem = interp_rem,
 
     .op_function = interp_function,
     .op_call     = interp_call,
@@ -315,6 +368,18 @@ static const Backend __INTERPRETER = {
     .op_if       = interp_if,
     .op_else     = interp_else,
     .op_endblock = interp_endblock,
+
+    /* new multi-element / bitwise / logical hooks */
+    .op_orassign = interp_orassign,
+    .op_andassign = interp_andassign,
+    .op_not = interp_not,
+    .op_bitand = interp_bitand,
+    .op_bitor = interp_bitor,
+    .op_bitxor = interp_bitxor,
+    .op_lsh = interp_lsh,
+    .op_lrsh = interp_lrsh,
+    .op_arsh = interp_arsh,
+    .op_gez = interp_gez,
 };
 
 #endif // INTERP_H

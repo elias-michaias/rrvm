@@ -43,6 +43,7 @@ typedef enum {
     OP_SUB,
     OP_MUL,
     OP_DIV,
+    OP_REM,
     OP_MOVE,
     OP_LOAD,
     OP_STORE,
@@ -64,6 +65,18 @@ typedef enum {
     OP_IF,
     OP_ELSE,
     OP_ENDBLOCK,
+
+    /* new multi-element / bitwise / logical ops (each takes a single immediate N) */
+    OP_ORASSign, /* logical OR-assign: reg[i] ||= tape_ptr[i] */
+    OP_ANDASSign, /* logical AND-assign: reg[i] &&= tape_ptr[i] */
+    OP_NOT,      /* logical NOT: reg[i] = !reg[i] (takes N) */
+    OP_BITAND,   /* bitwise AND: reg[i] &= tape_ptr[i] */
+    OP_BITOR,    /* bitwise OR: reg[i] |= tape_ptr[i] */
+    OP_BITXOR,   /* bitwise XOR: reg[i] ^= tape_ptr[i] */
+    OP_LSH,      /* left shift: reg[i] <<= tape_ptr[i] */
+    OP_LRSH,     /* logical right shift: reg[i] = (uint64_t)reg[i] >> tape_ptr[i] */
+    OP_ARSH,     /* arithmetic right shift: reg[i] >>= tape_ptr[i] */
+    OP_GEZ,      /* greater-or-equal-zero: reg[i] = reg[i] >= 0 */
 
     OP_HALT,
 } OpCode;
@@ -115,6 +128,8 @@ typedef struct Backend {
     void (*op_sub)(VM *vm);
     void (*op_mul)(VM *vm);
     void (*op_div)(VM *vm);
+    /* REM and the new ops are scalar (no immediate) */
+    void (*op_rem)(VM *vm);
     void (*op_move)(VM *vm, word imm);
     void (*op_load)(VM *vm);
     void (*op_store)(VM *vm);
@@ -132,11 +147,23 @@ typedef struct Backend {
     void (*op_function)(VM *vm, word func_index);
     void (*op_call)(VM *vm, word func_index);
     void (*op_return)(VM *vm);
-    /* op_while now receives an immediate indicating the ip of the condition's first instruction */
+    /* op_while still receives an immediate indicating the ip of the condition's first instruction */
     void (*op_while)(VM *vm, word cond_ip);
     void (*op_if)(VM *vm);
     void (*op_else)(VM *vm);
     void (*op_endblock)(VM *vm);
+
+    /* new multi-element / bitwise / logical hooks (scalar versions) */
+    void (*op_orassign)(VM *vm);
+    void (*op_andassign)(VM *vm);
+    void (*op_not)(VM *vm);
+    void (*op_bitand)(VM *vm);
+    void (*op_bitor)(VM *vm);
+    void (*op_bitxor)(VM *vm);
+    void (*op_lsh)(VM *vm);
+    void (*op_lrsh)(VM *vm);
+    void (*op_arsh)(VM *vm);
+    void (*op_gez)(VM *vm);
 } Backend;
 
 static inline void vm_push(VM *vm, word imm) {
@@ -208,6 +235,9 @@ static inline void run_vm(VM *vm, const Backend *backend) {
                 break;
             case OP_DIV:
                 if (backend->op_div) backend->op_div(vm);
+                break;
+            case OP_REM:
+                if (backend->op_rem) backend->op_rem(vm);
                 break;
             case OP_MOVE: {
                 assert(vm->ip < vm->code_len && "Unexpected end of code");
@@ -285,6 +315,38 @@ static inline void run_vm(VM *vm, const Backend *backend) {
                 if (backend->op_endblock) backend->op_endblock(vm);
                 break;
 
+            /* scalar multi/bitwise/logical op handlers (no immediates) */
+            case OP_ORASSign:
+                if (backend->op_orassign) backend->op_orassign(vm);
+                break;
+            case OP_ANDASSign:
+                if (backend->op_andassign) backend->op_andassign(vm);
+                break;
+            case OP_NOT:
+                if (backend->op_not) backend->op_not(vm);
+                break;
+            case OP_BITAND:
+                if (backend->op_bitand) backend->op_bitand(vm);
+                break;
+            case OP_BITOR:
+                if (backend->op_bitor) backend->op_bitor(vm);
+                break;
+            case OP_BITXOR:
+                if (backend->op_bitxor) backend->op_bitxor(vm);
+                break;
+            case OP_LSH:
+                if (backend->op_lsh) backend->op_lsh(vm);
+                break;
+            case OP_LRSH:
+                if (backend->op_lrsh) backend->op_lrsh(vm);
+                break;
+            case OP_ARSH:
+                if (backend->op_arsh) backend->op_arsh(vm);
+                break;
+            case OP_GEZ:
+                if (backend->op_gez) backend->op_gez(vm);
+                break;
+
             case OP_HALT:
                 return;
             default:
@@ -308,6 +370,7 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __sub    p = emit0(prog, p, OP_SUB)
 #define __mul    p = emit0(prog, p, OP_MUL)
 #define __div    p = emit0(prog, p, OP_DIV)
+#define __rem p = emit0(prog, p, OP_REM)
 #define __move(imm) p = emit1(prog, p, OP_MOVE, imm)
 #define __load  p = emit0(prog, p, OP_LOAD)
 #define __store p = emit0(prog, p, OP_STORE)
@@ -331,5 +394,17 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __if          p = emit0(prog, p, OP_IF)
 #define __else        p = emit0(prog, p, OP_ELSE)
 #define __end        p = emit0(prog, p, OP_ENDBLOCK)
+
+/* emit helpers for new multi-element / bitwise / logical ops (stack-oriented, no immediate) */
+#define __orass    p = emit0(prog, p, OP_ORASSign)
+#define __andass   p = emit0(prog, p, OP_ANDASSign)
+#define __not      p = emit0(prog, p, OP_NOT)
+#define __bitand   p = emit0(prog, p, OP_BITAND)
+#define __bitor    p = emit0(prog, p, OP_BITOR)
+#define __bitxor   p = emit0(prog, p, OP_BITXOR)
+#define __lsh      p = emit0(prog, p, OP_LSH)
+#define __lrsh     p = emit0(prog, p, OP_LRSH)
+#define __arsh     p = emit0(prog, p, OP_ARSH)
+#define __gez      p = emit0(prog, p, OP_GEZ)
 
 #endif // VM_H

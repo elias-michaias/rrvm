@@ -112,3 +112,35 @@ Here's the list of instructions I want to extend onto the ole' tape machine:
 | **Offset**      | Shift the register pointer values by a constant offset.                           |
 | **Index**       | Shift register pointer values by the offsets under the pointer.                   |
 
+Instruction	C Equivalent
+while	while (reg[0]) {
+if	if (reg[0]) {
+else	} else {
+end	}
+set N_0, N_1, ..., N_X	reg[0] = N_0; reg[1] = N_1; ... reg[x] = N_X;
+call	funs[reg[0]]();
+ret	return;
+load N	memcpy(reg, tape_ptr, N * sizeof(cell));
+store N	memcpy(tape_ptr, reg, N * sizeof(cell));
+move N	tape_ptr += N;
+where	reg[0].p = tape_ptr;
+deref	push(tape_ptr); tape_ptr = *tape_ptr;
+refer	tape_ptr = pop();
+index N	for (int i=0; i<N; i++) reg[i].p += tape_ptr->i;
+offset O, N	for (int i=0; i<N; i++) reg[i].p += O;
+swap N	for (int i=0; i<N; i++) swap(reg + i, tape_ptr + i);
+add N	for (int i=0; i<N; i++) reg[i].i += tape_ptr[i].i;
+sub N	for (int i=0; i<N; i++) reg[i].i -= tape_ptr[i].i;
+mul N	for (int i=0; i<N; i++) reg[i].i *= tape_ptr[i].i;
+div N	for (int i=0; i<N; i++) reg[i].i /= tape_ptr[i].i;
+rem N	for (int i=0; i<N; i++) reg[i].i %= tape_ptr[i].i;
+or N	for (int i=0; i<N; i++) reg[i].i ||= tape_ptr[i].i;
+and N	for (int i=0; i<N; i++) reg[i].i &&= tape_ptr[i].i;
+not N	for (int i=0; i<N; i++) reg[i].i = !reg[i].i;
+bitand N	for (int i=0; i<N; i++) reg[i].i &= tape_ptr[i].i;
+bitor N	for (int i=0; i<N; i++) reg[i].i |= tape_ptr[i].i;
+bitxor N	for (int i=0; i<N; i++) reg[i].i ^= tape_ptr[i].i;
+lsh N	for (int i=0; i<N; i++) reg[i].i <<= tape_ptr[i].i;
+l-rsh N	for (int i=0; i<N; i++) reg[i].i = (uint64_t)reg[i].i >> tape_ptr[i].i;
+a-rsh N	for (int i=0; i<N; i++) reg[i].i >>= tape_ptr[i].i;
+gez N	for (int i=0; i<N; i++) reg[i].i = reg[i].i >= 0;

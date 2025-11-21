@@ -18,6 +18,22 @@ typedef enum {
     TAC_SUB,
     TAC_MUL,
     TAC_DIV,
+    TAC_REM,
+
+    /* bitwise / logical / shifts */
+    TAC_BITAND,
+    TAC_BITOR,
+    TAC_BITXOR,
+    TAC_LSH,
+    TAC_LRSH,
+    TAC_ARSH,
+
+    /* logical binary ops (produce 0/1) */
+    TAC_OR,
+    TAC_AND,
+    TAC_NOT, /* unary: dst = !lhs */
+    TAC_GEZ, /* unary: dst = lhs >= 0 */
+
     TAC_MOVE,
     TAC_LOAD,
     TAC_STORE,
@@ -218,6 +234,43 @@ static void tac_add(VM *vm) { tac_binary(vm, TAC_ADD); }
 static void tac_sub(VM *vm) { tac_binary(vm, TAC_SUB); }
 static void tac_mul(VM *vm) { tac_binary(vm, TAC_MUL); }
 static void tac_div(VM *vm) { tac_binary(vm, TAC_DIV); }
+static void tac_rem(VM *vm) { tac_binary(vm, TAC_REM); }
+
+/* logical OR/AND (binary producing 0/1) */
+static void tac_orassign(VM *vm) { tac_binary(vm, TAC_OR); }
+static void tac_andassign(VM *vm) { tac_binary(vm, TAC_AND); }
+
+/* unary and bitwise/shift lowerings */
+static void tac_not(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    assert(s->sp >= 1 && "tac_not: missing operand temp");
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_NOT, .dst=dst, .lhs=lhs});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_gez(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    assert(s->sp >= 1 && "tac_gez: missing operand temp");
+    int lhs = s->stack[--s->sp];
+    int dst = s->next_temp++;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_GEZ, .dst=dst, .lhs=lhs});
+    s->stack[s->sp++] = dst;
+}
+
+static void tac_bitand(VM *vm) { tac_binary(vm, TAC_BITAND); }
+static void tac_bitor(VM *vm) { tac_binary(vm, TAC_BITOR); }
+static void tac_bitxor(VM *vm) { tac_binary(vm, TAC_BITXOR); }
+static void tac_lsh(VM *vm) { tac_binary(vm, TAC_LSH); }
+static void tac_lrsh(VM *vm) { tac_binary(vm, TAC_LRSH); }
+static void tac_arsh(VM *vm) { tac_binary(vm, TAC_ARSH); }
 
 static void tac_move(VM *vm, word imm) {
     tac_backend_state *s = tac_state(vm);
@@ -243,7 +296,7 @@ static void tac_store(VM *vm) {
 
     assert(s->sp >= 1);
     int src = s->stack[--s->sp];
-    tac_emit(&s->prog, (tac_instr){.op=TAC_STORE, .lhs=src});
+    tac_emit(&s->prog, (tac_instr){TAC_STORE, -1, src, 0, 0});
 }
 
 static void tac_load(VM *vm) {
@@ -283,7 +336,7 @@ static void tac_deref(VM *vm) {
     assert(s->sp >= 1 && "tac_deref: missing pointer temp on virtual stack");
     int lhs = s->stack[--s->sp];
     int dst = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_DEREF, .lhs=lhs, .dst=dst});
+    tac_emit(&s->prog, (tac_instr){.op=TAC_DEREF, .dst=dst, .lhs=lhs});
     s->stack[s->sp++] = dst;
 }
 
@@ -296,7 +349,7 @@ static void tac_refer(VM *vm) {
     assert(s->sp >= 1 && "tac_refer: missing value temp on virtual stack");
     int lhs = s->stack[--s->sp];
     int dst = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_REFER, .lhs=lhs, .dst=dst});
+    tac_emit(&s->prog, (tac_instr){.op=TAC_REFER, .dst=dst, .lhs=lhs});
     s->stack[s->sp++] = dst;
 }
 
@@ -320,7 +373,7 @@ static void tac_offset(VM *vm, word imm) {
     assert(s->sp >= 1 && "tac_offset: missing pointer temp on virtual stack");
     int lhs = s->stack[--s->sp];
     int dst = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_OFFSET, .lhs=lhs, .dst=dst, .imm=imm});
+    tac_emit(&s->prog, (tac_instr){.op=TAC_OFFSET, .dst=dst, .lhs=lhs, .imm=imm});
     s->stack[s->sp++] = dst;
 }
 
@@ -334,7 +387,7 @@ static void tac_index(VM *vm) {
     int rhs = s->stack[--s->sp];
     int lhs = s->stack[--s->sp];
     int dst = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_INDEX, .lhs=lhs, .rhs=rhs, .dst=dst});
+    tac_emit(&s->prog, (tac_instr){TAC_INDEX, dst, lhs, rhs, 0});
     s->stack[s->sp++] = dst;
 }
 
@@ -345,7 +398,7 @@ static void tac_set(VM *vm, word imm) {
 
     /* create a temp for the immediate value */
     int valtmp = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_CONST, .dst=valtmp, .imm=imm});
+    tac_emit(&s->prog, (tac_instr){TAC_CONST, valtmp, 0, 0, imm});
 
     /* Prefer using an explicit pointer temp from the virtual stack. If none is present,
        materialize the current pointer as a temp via WHERE and push it. We deliberately do
@@ -591,6 +644,7 @@ static const Backend __TAC = {
     .op_sub  = tac_sub,
     .op_mul  = tac_mul,
     .op_div  = tac_div,
+    .op_rem  = tac_rem,
     .op_move = tac_move,
     .op_load = tac_load,
     .op_store= tac_store,
@@ -612,6 +666,18 @@ static const Backend __TAC = {
     .op_if       = tac_if,
     .op_else     = tac_else,
     .op_endblock = tac_endblock,
+
+    /* new multi-element / bitwise / logical hooks */
+    .op_orassign = tac_orassign,
+    .op_andassign = tac_andassign,
+    .op_not = tac_not,
+    .op_bitand = tac_bitand,
+    .op_bitor = tac_bitor,
+    .op_bitxor = tac_bitxor,
+    .op_lsh = tac_lsh,
+    .op_lrsh = tac_lrsh,
+    .op_arsh = tac_arsh,
+    .op_gez = tac_gez,
 };
 
 // --- Dump TAC ---
@@ -624,6 +690,22 @@ static inline void tac_dump(const tac_prog *t) {
             case TAC_SUB:   printf("t%d = t%d - t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_MUL:   printf("t%d = t%d * t%d\n", instr->dst, instr->lhs, instr->rhs); break;
             case TAC_DIV:   printf("t%d = t%d / t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_REM:   printf("t%d = t%d %% t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+
+            /* bitwise / logical / shifts */
+            case TAC_BITAND: printf("t%d = t%d & t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_BITOR:  printf("t%d = t%d | t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_BITXOR: printf("t%d = t%d ^ t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_LSH:    printf("t%d = t%d << t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_LRSH:   printf("t%d = (u)t%d >> t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_ARSH:   printf("t%d = t%d >> t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+
+            /* logical binary ops (produce 0/1) */
+            case TAC_OR:     printf("t%d = t%d || t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_AND:    printf("t%d = t%d && t%d\n", instr->dst, instr->lhs, instr->rhs); break;
+            case TAC_NOT:    printf("t%d = !t%d\n", instr->dst, instr->lhs); break;
+            case TAC_GEZ:    printf("t%d = t%d >= 0\n", instr->dst, instr->lhs); break;
+
             case TAC_MOVE:  printf("MOVE %" WORD_FMT "\n", instr->imm); break;
             case TAC_LOAD:  printf("t%d = LOAD\n", instr->dst); break;
             case TAC_STORE: printf("STORE t%d\n", instr->lhs); break;
@@ -662,6 +744,7 @@ static inline void tac_dump(const tac_prog *t) {
                 }
                 break;
             case TAC_RET:   printf("RET\n"); break;
+            default: printf("<unknown t-op %d>\n", instr->op); break;
         }
     }
 }

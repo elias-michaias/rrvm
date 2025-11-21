@@ -4,16 +4,17 @@ VM __4() {
     __init(192);
 
     /* Test 4: Calls and pointer interactions
-       - function 0: stores value at tape[0] = arg+10 and returns
-       - function 1: stores pointer at tape[1] to cell 4
-       - main: call fn0, call fn1, deref, offset, load/print sequence
+       - function 0: computes 7+10 and returns the value
+       - function 1: stores pointer value 4 at tape[0]
+       - main: call fn1 to initialize tape[0]=4, call fn0 to compute 17, then store that value into tape[4]
+               finally deref (tp = tape[0] -> 4), load tape[4], print
     */
 
     __func(0);
-          /* simpler: compute 7 + 10 and push the result so the CALL returns it directly */
-          __push(7);
-          __push(10);
-          __add;
+      /* compute 7 + 10 and return the value */
+      __push(7);
+      __push(10);
+      __add;
       __ret;
     __end;
 
@@ -24,17 +25,22 @@ VM __4() {
     __end;
 
     /* main */
-    /* push argument 7 and call fn0 */
-    __push(7);
-    __call(0);
-
-    /* push nothing and call fn1 (it will set a pointer under tp) */
+    /* call fn1 first to initialize tape[0] = 4 (tp starts at 0) */
     __call(1);
 
-    /* deref -> tp = tape[tp] (should become 4) */
+    /* call fn0 which computes 7+10 and leaves 17 on the stack */
+    __call(0);
+
+    /* store the return value into tape[4] by moving tp temporarily */
+    __move(4);
+    __store;
+    __move(-4);
+
+    /* deref -> tp = tape[tp] (should become 4), then load tape[4] and print */
     __deref;
     __offset(0);
-    __load; __print; /* should print value stored at cell 4 by fn0 */
+    __load;
+    __print; /* should print value stored at cell 4 by fn0 */
 
     __halt;
     __fin;
