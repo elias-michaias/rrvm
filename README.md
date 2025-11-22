@@ -2,7 +2,7 @@
 
 ## What is RRVM?
 
-RRVM (Reconstructing Relational Virtual Machine) is a virtual machine built with a set of minor extensions to a basic tape machine's feature set. It is zero-addressed, meaning that it does not use memory addresses to access data, but instead uses a set of registers to store and manipulate data. This makes it an easy compile target. The advantage of RRVM's instruction set is that it maintains just enough context to be reconstructed into a three-address Code (TAC) with single static assignment (SSA), which enables it to be optimized in the same ways that LLVM does.
+RRVM (Reconstructing Relational Virtual Machine) is a virtual machine built with a set of minor extensions to a basic tape machine's feature set. It is zero-addressed, meaning that it does not use memory addresses to access data, but instead uses a set of registers to store and manipulate data. This makes it an easy compile target. The advantage of RRVM's instruction set is that it maintains just enough context to be reconstructed into a three-address code (TAC) with single static assignment (SSA), which enables it to be optimized in the same ways that LLVM does.
 Both of these attributes keep RRVM as terse as possible - the codebase is small, pleasant, and hackable.
 
 ### Reconstructing
