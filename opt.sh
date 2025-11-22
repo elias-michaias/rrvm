@@ -9,4 +9,4 @@ if [ -z "$N" ]; then
 fi
 
 # Run SWI-Prolog optimizer:
-swipl -q -s opt/main.pl -g "run($N), halt."
+swipl -q -s opt/main.pl -g "run('$N'), halt."

@@ -6,8 +6,6 @@
  * Features:
  *  - Accepts a textual .rr program via --file <path> (or "-" for stdin).
  *  - Select backend at runtime: default interpreter; pass --tac to use TAC backend.
- *  - If no file is provided, preserves existing behavior and runs built-in sample
- *    programs in rrvm/programs/*.c.
  *
  * Notes:
  *  - Whole-line comments in .rr files must start with '#' as the first
