@@ -772,9 +772,23 @@ static const char *type_tag_name(int t) {
    destination temps when available (instr->dst_type). */
 static void tac_print_goal(FILE *out, const tac_instr *instr) {
     switch (instr->op) {
-        case TAC_CONST:
-            fprintf(out, "const(t%d, %s, %" WORD_FMT ")", instr->dst, type_tag_name(instr->dst_type), instr->imm);
+        case TAC_CONST: {
+            /* Print float constants as hex bit-patterns for clarity:
+             * - f32: 0xNNNNNNNN (lower 32 bits of imm)
+             * - f64: 0xNNNNNNNNNNNNNNNN (full 64-bit imm)
+             * Fallback to the original numeric printing for non-float types.
+             */
+            if (instr->dst_type == TYPE_F32) {
+                uint32_t bits = (uint32_t)(instr->imm & 0xFFFFFFFFu);
+                fprintf(out, "const(t%d, f32, 0x%08" PRIx32 ")", instr->dst, bits);
+            } else if (instr->dst_type == TYPE_F64) {
+                uint64_t bits = (uint64_t)instr->imm;
+                fprintf(out, "const(t%d, f64, 0x%016" PRIx64 ")", instr->dst, bits);
+            } else {
+                fprintf(out, "const(t%d, %s, %" WORD_FMT ")", instr->dst, type_tag_name(instr->dst_type), instr->imm);
+            }
             break;
+        }
         case TAC_ADD:
             fprintf(out, "add(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
