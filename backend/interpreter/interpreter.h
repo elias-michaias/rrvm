@@ -68,19 +68,135 @@ static inline void interp_binary(VM *vm, word (*fn)(word, word)) {
 }
 
 static inline void interp_add(VM *vm) {
-    interp_binary(vm, add_fn);
+    /* Support float-aware addition: if the operand types are f32 or f64,
+       perform IEEE-754 addition by bit-casting to float/double, otherwise
+       fall back to the integer binary path. */
+    assert(vm->sp >= 2 && "interp_add: stack underflow");
+    TypeTag top = vm->types[vm->sp - 1];
+    TypeTag next = vm->types[vm->sp - 2];
+    assert(top == next && "interp_add: type mismatch");
+
+    if (top == TYPE_F32) {
+        /* pop a (top), b (next) and compute b + a as f32 using union-based bit-casts */
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        uint32_t a_bits = (uint32_t)(a_word & 0xFFFFFFFFu);
+        uint32_t b_bits = (uint32_t)(b_word & 0xFFFFFFFFu);
+        union { uint32_t u; float f; } ua, ub, ur;
+        ua.u = a_bits;
+        ub.u = b_bits;
+        ur.f = ub.f + ua.f; /* b + a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F32;
+    } else if (top == TYPE_F64) {
+        /* pop a (top), b (next) and compute b + a as f64 using union-based bit-casts */
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        union { uint64_t u; double d; } ua, ub, ur;
+        ua.u = (uint64_t)a_word;
+        ub.u = (uint64_t)b_word;
+        ur.d = ub.d + ua.d; /* b + a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F64;
+    } else {
+        interp_binary(vm, add_fn);
+    }
 }
 
 static inline void interp_sub(VM *vm) {
-    interp_binary(vm, sub_fn);
+    /* Support float-aware subtraction: b - a */
+    assert(vm->sp >= 2 && "interp_sub: stack underflow");
+    TypeTag top = vm->types[vm->sp - 1];
+    TypeTag next = vm->types[vm->sp - 2];
+    assert(top == next && "interp_sub: type mismatch");
+
+    if (top == TYPE_F32) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        uint32_t a_bits = (uint32_t)(a_word & 0xFFFFFFFFu);
+        uint32_t b_bits = (uint32_t)(b_word & 0xFFFFFFFFu);
+        union { uint32_t u; float f; } ua, ub, ur;
+        ua.u = a_bits;
+        ub.u = b_bits;
+        ur.f = ub.f - ua.f; /* b - a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F32;
+    } else if (top == TYPE_F64) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        union { uint64_t u; double d; } ua, ub, ur;
+        ua.u = (uint64_t)a_word;
+        ub.u = (uint64_t)b_word;
+        ur.d = ub.d - ua.d; /* b - a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F64;
+    } else {
+        interp_binary(vm, sub_fn);
+    }
 }
 
 static inline void interp_mul(VM *vm) {
-    interp_binary(vm, mul_fn);
+    /* Support float-aware multiplication */
+    assert(vm->sp >= 2 && "interp_mul: stack underflow");
+    TypeTag top = vm->types[vm->sp - 1];
+    TypeTag next = vm->types[vm->sp - 2];
+    assert(top == next && "interp_mul: type mismatch");
+
+    if (top == TYPE_F32) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        uint32_t a_bits = (uint32_t)(a_word & 0xFFFFFFFFu);
+        uint32_t b_bits = (uint32_t)(b_word & 0xFFFFFFFFu);
+        union { uint32_t u; float f; } ua, ub, ur;
+        ua.u = a_bits;
+        ub.u = b_bits;
+        ur.f = ub.f * ua.f; /* b * a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F32;
+    } else if (top == TYPE_F64) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        union { uint64_t u; double d; } ua, ub, ur;
+        ua.u = (uint64_t)a_word;
+        ub.u = (uint64_t)b_word;
+        ur.d = ub.d * ua.d; /* b * a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F64;
+    } else {
+        interp_binary(vm, mul_fn);
+    }
 }
 
 static inline void interp_div(VM *vm) {
-    interp_binary(vm, div_fn);
+    /* Support float-aware division: b / a */
+    assert(vm->sp >= 2 && "interp_div: stack underflow");
+    TypeTag top = vm->types[vm->sp - 1];
+    TypeTag next = vm->types[vm->sp - 2];
+    assert(top == next && "interp_div: type mismatch");
+
+    if (top == TYPE_F32) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        uint32_t a_bits = (uint32_t)(a_word & 0xFFFFFFFFu);
+        uint32_t b_bits = (uint32_t)(b_word & 0xFFFFFFFFu);
+        union { uint32_t u; float f; } ua, ub, ur;
+        ua.u = a_bits;
+        ub.u = b_bits;
+        ur.f = ub.f / ua.f; /* b / a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F32;
+    } else if (top == TYPE_F64) {
+        word a_word = vm_pop(vm);
+        word b_word = vm_pop(vm);
+        union { uint64_t u; double d; } ua, ub, ur;
+        ua.u = (uint64_t)a_word;
+        ub.u = (uint64_t)b_word;
+        ur.d = ub.d / ua.d; /* b / a */
+        vm_push(vm, (word)ur.u);
+        vm->types[vm->sp - 1] = TYPE_F64;
+    } else {
+        interp_binary(vm, div_fn);
+    }
 }
 
 static inline void interp_print(VM *vm) {
@@ -91,16 +207,16 @@ static inline void interp_print(VM *vm) {
     switch (t) {
         case TYPE_F32: {
             uint32_t bits = (uint32_t)(value & 0xFFFFFFFFu);
-            float f;
-            memcpy(&f, &bits, sizeof(f));
+            union { uint32_t u; float f; } u;
+            u.u = bits;
             /* upcast to double for consistent printf formatting */
-            printf("%f\n", (double)f);
+            printf("%f\n", (double)u.f);
             break;
         }
         case TYPE_F64: {
-            double d;
-            memcpy(&d, &value, sizeof(d));
-            printf("%f\n", d);
+            union { uint64_t u; double d; } u;
+            u.u = (uint64_t)value;
+            printf("%f\n", u.d);
             break;
         }
         case TYPE_U8:

@@ -1,0 +1,68 @@
+# Test 8: floating-point examples (f32 and f64)
+#
+# This file demonstrates usage of the VM's float types (f32, f64) and the
+# `print` opcode which formats floats correctly. IMPORTANT: the textual
+# frontend represents immediates as integer bit-patterns. To push a float
+# literal, supply the IEEE-754 bit representation as an integer (hex is
+# convenient, e.g. 0x3fc00000 for f32 1.5). The interpreter will reinterpret
+# the bits according to the TypeTag when printing.
+#
+# Expected output (approx, printed by printf "%f\n"):
+# 4.000000      <- f32 1.5 + 2.5
+# 2.000000      <- f32 1.0 * 2.0
+# 3.000000      <- f32 3.0 / 1.0
+# 1000.000000   <- f32 value stored to tape and loaded back
+# 4.000000      <- f64 1.5 + 2.5
+# 3.500000      <- f64 1.25 + 2.25
+#
+# Notes on chosen bit patterns:
+# - f32:
+#   1.5   -> 0x3fc00000
+#   2.5   -> 0x40200000
+#   1.0   -> 0x3f800000
+#   2.0   -> 0x40000000
+#   3.0   -> 0x40400000
+#   1000.0-> 0x447a0000
+#
+# - f64:
+#   1.5   -> 0x3ff8000000000000
+#   2.5   -> 0x4004000000000000
+#   1.25  -> 0x3ff4000000000000
+#   2.25  -> 0x4002000000000000
+
+# --- f32 arithmetic: addition ---
+push f32 1.5   # 1.5
+push f32 2.5   # 2.5
+add
+print                 # expect 4.0
+
+# --- f32 multiplication ---
+push f32 1.0   # 1.0
+push f32 2.0   # 2.0
+mul
+print                 # expect 2.0
+
+# --- f32 division ---
+push f32 3.0   # 3.0
+push f32 1.0   # 1.0
+div
+print                 # expect 3.0
+
+# --- store/load float on tape (f32) ---
+set f32 1000.0    # tape[tp] = 1000.0 (f32)
+load
+print                 # expect 1000.0
+
+# --- f64 arithmetic: addition ---
+push f64 1.5   # 1.5 (double)
+push f64 2.5   # 2.5 (double)
+add
+print                         # expect 4.0
+
+# --- f64 showing fractional sums ---
+push f64 1.25
+push f64 2.25
+add
+print                         # expect 3.5
+
+halt

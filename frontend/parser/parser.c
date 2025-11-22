@@ -269,6 +269,70 @@ static int parse_int64(const char *s, word *out) {
     return 0;
 }
 
+/* Parse an f32 immediate which may be either:
+ *  - a hex bit-pattern like 0x3fc00000 (raw IEEE-754 bits), or
+ *  - a numeric literal like 1.5 (decimal or C hex-float), which is parsed
+ *    as a floating value and then bit-cast into the 32-bit pattern.
+ *
+ * The resulting 32-bit pattern is stored into the lower 32 bits of the VM word.
+ */
+static int parse_f32_or_bits(const char *s, word *out) {
+    if (!s) return -1;
+    char *end = NULL;
+    errno = 0;
+
+    /* If the caller provided an explicit hex-style immediate, parse as unsigned
+     * to allow the high bit to be set (raw bit-pattern).
+     */
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        unsigned long long v = strtoull(s, &end, 0);
+        if (end == s || errno) return -1;
+        uint32_t bits = (uint32_t)v;
+        *out = (word)bits;
+        return 0;
+    }
+
+    /* Otherwise parse as a floating-point literal (strtod accepts decimal and
+     * C hex-float forms such as 0x1.8p+1) and downcast to float */
+    errno = 0;
+    char *end2 = NULL;
+    double dv = strtod(s, &end2);
+    if (end2 == s || errno) return -1;
+    float fv = (float)dv;
+    union { uint32_t u; float f; } u;
+    u.f = fv;
+    *out = (word)u.u;
+    return 0;
+}
+
+/* Parse an f64 immediate which may be either:
+ *  - a hex bit-pattern like 0x3ff8000000000000 (raw IEEE-754 bits), or
+ *  - a numeric literal like 1.5 (decimal or C hex-float), which is parsed
+ *    as a floating value and bit-cast into the 64-bit pattern.
+ */
+static int parse_f64_or_bits(const char *s, word *out) {
+    if (!s) return -1;
+    char *end = NULL;
+    errno = 0;
+
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        unsigned long long v = strtoull(s, &end, 0);
+        if (end == s || errno) return -1;
+        uint64_t bits = (uint64_t)v;
+        *out = (word)bits;
+        return 0;
+    }
+
+    errno = 0;
+    char *end2 = NULL;
+    double dv = strtod(s, &end2);
+    if (end2 == s || errno) return -1;
+    union { uint64_t u; double d; } u;
+    u.d = dv;
+    *out = (word)u.u;
+    return 0;
+}
+
 static int type_tag_from_str(const char *s) {
     if (!s) return TYPE_UNKNOWN;
     if (strcasecmp(s, "i8") == 0) return TYPE_I8;
@@ -404,13 +468,28 @@ int parse_rr_string_to_vm(const char *src, VM *out_vm, char **err_msg) {
             if (ntok != 3) { set_error_msg(err_msg, "line %zu: push expects: push <type> <imm>", lineno); free(kwlow); lexer_free_tokens(tokens); goto fail; }
             int t = type_tag_from_str(tokens[1]);
             word imm;
-            if (parse_int64(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            /* Accept either raw hex bit-patterns or human-friendly numeric literals
+             * for float types. For non-float types, fall back to integer parsing.
+             */
+            if (t == TYPE_F32) {
+                if (parse_f32_or_bits(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid f32 immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            } else if (t == TYPE_F64) {
+                if (parse_f64_or_bits(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid f64 immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            } else {
+                if (parse_int64(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            }
             EMIT2(OP_PUSH, (word)t, imm);
         } else if (strcasecmp(kwlow, "set") == 0) {
             if (ntok != 3) { set_error_msg(err_msg, "line %zu: set expects: set <type> <imm>", lineno); free(kwlow); lexer_free_tokens(tokens); goto fail; }
             int t = type_tag_from_str(tokens[1]);
             word imm;
-            if (parse_int64(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            if (t == TYPE_F32) {
+                if (parse_f32_or_bits(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid f32 immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            } else if (t == TYPE_F64) {
+                if (parse_f64_or_bits(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid f64 immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            } else {
+                if (parse_int64(tokens[2], &imm) < 0) { set_error_msg(err_msg, "line %zu: invalid immediate '%s'", lineno, tokens[2]); free(kwlow); lexer_free_tokens(tokens); goto fail; }
+            }
             EMIT2(OP_SET, (word)t, imm);
         } else if (strcasecmp(kwlow, "add") == 0) { EMIT0(OP_ADD);
         } else if (strcasecmp(kwlow, "sub") == 0) { EMIT0(OP_SUB);
