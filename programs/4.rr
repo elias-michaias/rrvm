@@ -10,21 +10,21 @@
 #     offset 0; load; print -> print value at tape[4] (should be 17)
 #     halt
 
-func f0
+func foo
   push i64 7
   push i64 10
   add
   ret
 end
 
-func f1
+func bar
   set ptr 4
   ret
 end
 
 # main
-call f1
-call f0
+call bar
+call foo
 
 # store the return value into tape[4] by moving tp temporarily
 move 4

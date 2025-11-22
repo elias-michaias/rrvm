@@ -11,21 +11,39 @@ In the context of RRVM, "reconstructing" means that the stack machine reconstruc
 
 ```
 func foo
-  push i32 1
-  push i32 2
+  push i64 7
+  push i64 10
   add
   ret
 end
-```
 
-The `push` instruction pushes a value onto the stack, while the `add` instruction pops two values from the stack and pushes their sum back onto the stack. The `ret` instruction pops the top value from the stack and returns it as the result of the function. Then, a caller can `call` the function to retrieve the result:
-
-```
 func bar
-  call foo
-  push i32 9
-  sub
+  set ptr 4
+  ret
 end
+
+# main
+call bar
+call foo
+
+# store the return value into tape[4] by moving tp temporarily
+move 4
+store
+move -4
+
+# deref -> tp = tape[tp] (should be 4)
+deref
+offset 0
+load
+print
+
+halt
+```
+
+The `push` instruction pushes a value onto the stack, while the `add` instruction pops two values from the stack and pushes their sum back onto the stack. The `ret` instruction pops the top value from the stack and returns it as the result of the function. Then, a caller can `call` the function to retrieve the result. Here's the output of the program:
+
+```
+17
 ```
 
 One of the weaknesses of a zero-address stack machine intermediate representation (IR) during compilation phases is that it lacks many of the chances to *optimize* that three-address code does. See the following article by *geeksforgeeks* for more information on three-address code: [Three address code in compilers](https://www.geeksforgeeks.org/compiler-design/three-address-code-compiler/).
@@ -33,17 +51,17 @@ RRVM addresses this by being able to reconstruct itself into a three-address cod
 
 ### Relational
 
-For RRVM, "relational" means that the three-address code format is not expressed in traditional assignment syntax, but is actually generated as a collection of *Prolog terms*. This means that the three-address code is automatically interpreted in Prolog as actual code, and thus, a data structure that can be manipulated trivially. It leverages the power of Prolog's built-in relational programming capabilities to enable efficient and flexible manipulation of the code. Particularly, it leverages Definite Clause Grammars (DCGs) to do term rewriting on arbitrary three-address code. For more information on Definite Clause Grammars (DCGs), see the following article by *Simply Logical*: [Definite Clause Grammars](https://book.simply-logical.space/src/text/3_part_iii/7.2.html). For more information on metaprogramming in Prolog generally and the "code is data" paradigm, see the following article at *The Power of Prolog*: [Prolog Macros](https://www.metalevel.at/prolog/macros).
+For RRVM, "relational" means that the three-address code format is not expressed in traditional assignment syntax, but is actually generated as a collection of *Prolog terms*. This means that the three-address code is automatically interpreted in Prolog as actual code, and thus, a data structure that can be manipulated trivially. It leverages the power of Prolog's built-in relational programming capabilities to enable efficient and flexible manipulation of the code. Particularly, it leverages Definite Clause Grammars (DCGs) to do term rewriting on arbitrary three-address code. For more information on Definite Clause Grammars (DCGs), see the following article by *Simply Logical*: [Definite Clause Grammars](https://book.simply-logical.space/src/text/3_part_iii/7.2.html). For more information on metaprogramming in Prolog generally and the "code is data" paradigm, see the following article at *The Power of Prolog*: [Prolog Macros](https://www.metalevel.at/prolog/macros). Here's the Prolog three-address code for the above example:
 
 ```prolog
 l1 :-
-  const(t0, 7),
-  const(t1, 10),
-  add(t2, t0, t1),
+  const(t0, i64, 7),
+  const(t1, i64, 10),
+  add(t2, i64, t0, t1),
   ret.
 
 l2 :-
-  const(t3, 4),
+  const(t3, ptr, 4),
   set(t2, t3),
   ret.
 
@@ -59,4 +77,11 @@ l0 :-
   print(t8).
 ```
 
-The advantage of using Prolog as an optimization engine is that every optimization pass can be expressed as a set of Prolog rules, which is significantly terser and easier to reason about than equivalent code in other languages. The performance hit on the optimization phase should be negligible, if any - Prolog typically competes into the millions of rows with SQL as an in-memory database. When it comes to hobby-scale projects, being able to express complicated optimizations in a concise and readable manner is heavily preferred to a small boost in performance.
+Prolog is able to reason about the relationships between terms and run optimization passes in a very succinct pipeline. For example, the first function can be optimized by the `const_fold.pl` module into:
+```prolog
+l1 :-
+  const(t2, i64, 17), /* 10 + 7 */
+  ret.
+```
+
+The advantage of using Prolog as an optimization engine is that every optimization pass can be expressed as a set of Prolog rules, which is significantly terser and easier to reason about than equivalent code in other languages.
