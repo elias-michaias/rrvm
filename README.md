@@ -84,4 +84,4 @@ l1 :-
   ret.
 ```
 
-The advantage of using Prolog as an optimization engine is that almost all of our work is done for us by the Prolog engine itself and optimizations can be expressed purely declaratively. This keeps code size down and makes the virtual machine implementation more efficient and pluggbale - removing and adding custom optimization passes is as easy as adding new rewrite rules.
+The advantage of using Prolog as an optimization engine is that almost all of our work is done for us by the Prolog engine itself and optimizations can be expressed purely declaratively. This keeps code size down and makes the virtual machine implementation more efficient and pluggable - removing and adding custom optimization passes is as easy as adding new rewrite rules.
