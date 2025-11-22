@@ -98,8 +98,8 @@ int main(int argc, char **argv) {
             tac_prog *prog = tac_get_prog(&vm_parsed);
             if (prog) {
                 tac_dump(prog);
-                /* write to default path opt/tmp/raw/parsed.pl */
-                tac_dump_file(prog, "opt/tmp/parsed.pl");
+                /* write to opt/tmp/raw/<input_basename>.pl where basename is the input filename (e.g. foo.rr -> foo.pl) */
+                tac_dump_file(prog, file_path);
             }
         }
 

@@ -773,17 +773,24 @@ static const char *type_tag_name(int t) {
 static void tac_print_goal(FILE *out, const tac_instr *instr) {
     switch (instr->op) {
         case TAC_CONST: {
-            /* Print float constants as hex bit-patterns for clarity:
-             * - f32: 0xNNNNNNNN (lower 32 bits of imm)
-             * - f64: 0xNNNNNNNNNNNNNNNN (full 64-bit imm)
+            /* Print float constants as hex bit-patterns for clarity and append a
+             * human-readable float value as a Prolog comment for convenience:
+             *  - f32: 0xNNNNNNNN  (decimal: %f)
+             *  - f64: 0xNNNNNNNNNNNNNNNN  (decimal: %f)
              * Fallback to the original numeric printing for non-float types.
              */
             if (instr->dst_type == TYPE_F32) {
                 uint32_t bits = (uint32_t)(instr->imm & 0xFFFFFFFFu);
-                fprintf(out, "const(t%d, f32, 0x%08" PRIx32 ")", instr->dst, bits);
+                /* reinterpret bits as float for a readable decimal comment */
+                union { uint32_t u; float f; } u32;
+                u32.u = bits;
+                fprintf(out, "const(t%d, f32, 0x%08" PRIx32 " /* %f */)", instr->dst, bits, (double)u32.f);
             } else if (instr->dst_type == TYPE_F64) {
                 uint64_t bits = (uint64_t)instr->imm;
-                fprintf(out, "const(t%d, f64, 0x%016" PRIx64 ")", instr->dst, bits);
+                /* reinterpret bits as double for a readable decimal comment */
+                union { uint64_t u; double d; } u64;
+                u64.u = bits;
+                fprintf(out, "const(t%d, f64, 0x%016" PRIx64 " /* %f */)", instr->dst, bits, u64.d);
             } else {
                 fprintf(out, "const(t%d, %s, %" WORD_FMT ")", instr->dst, type_tag_name(instr->dst_type), instr->imm);
             }
@@ -955,23 +962,34 @@ static void tac_dump_file(const tac_prog *t, const char *path) {
     /* create parent dir if needed */
     create_dir("opt/tmp/raw");
 
-    /* determine filename index from path param if provided, else default to 0 */
-    int idx = 0;
-    if (path) {
-        /* try to parse an integer suffix from path (e.g. ".../N.pl") */
+    /* Determine output filename from the provided `path` argument.
+     *
+     * Expected behavior:
+     *  - If `path` is a source filename (e.g. "/some/dir/foo.rr" or "foo.rr"),
+     *    use the basename without extension and write to "opt/tmp/raw/foo.pl".
+     *  - If `path` is NULL or empty, fall back to "parsed.pl" -> "opt/tmp/raw/parsed.pl".
+     *
+     * Note: main.c should pass the original input filename as `path` when
+     * calling tac_dump_file. This backend will not attempt to guess names
+     * from other context.
+     */
+    char namebuf[256] = {0};
+
+    if (path && path[0]) {
         const char *base = strrchr(path, '/');
-        if (!base) base = path;
-        else ++base;
-        /* strip extension */
-        char buf[64] = {0};
-        strncpy(buf, base, sizeof(buf)-1);
-        char *dot = strrchr(buf, '.');
+        const char *b = base ? (base + 1) : path;
+        /* copy basename and strip extension if present */
+        strncpy(namebuf, b, sizeof(namebuf) - 1);
+        char *dot = strrchr(namebuf, '.');
         if (dot) *dot = '\0';
-        idx = atoi(buf);
+        /* if stripping produced empty name, fall back to 'parsed' */
+        if (namebuf[0] == '\0') strncpy(namebuf, "parsed", sizeof(namebuf) - 1);
+    } else {
+        strncpy(namebuf, "parsed", sizeof(namebuf) - 1);
     }
 
-    char outpath[256];
-    snprintf(outpath, sizeof(outpath), "opt/tmp/raw/%d.pl", idx);
+    char outpath[512];
+    snprintf(outpath, sizeof(outpath), "opt/tmp/raw/%s.pl", namebuf);
 
     FILE *f = fopen(outpath, "w");
     if (!f) {
