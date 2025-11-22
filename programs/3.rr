@@ -1,0 +1,42 @@
+# Sample 3: Mixed pointer arithmetic and indexing (converted from programs/3.c)
+# Description:
+#  - set ptr 2        : store a pointer value (TYPE_PTR) at tape[tp] (tp starts at 0)
+#  - deref            : tp := tape[tp] (push old tp on tp_stack)
+#  - set i64 555      : store 555 at new tp (tp == 2)
+#  - refer            : restore previous tp (back to 0)
+#  - offset 2 / load / print : move to tp=2 then load and print 555
+#  - set i64 1 at tp=2, load index, index -> tp := tp + tape[tp] => 2 + 1 = 3
+#  - where / print : show current tp (should be 3)
+#
+# Notes: full-line comments only (start with '#'). No trailing or mid-line comments.
+
+# store pointer to cell 2 at tape[0]
+set ptr 2
+
+# dereference: tp := tape[tp] -> tp becomes 2
+deref
+
+# at tp=2: store 555
+set i64 555
+
+# go back to previous tp (0)
+refer
+
+# move to tp=2 and print the stored value (555)
+offset 2
+load
+print
+
+# prepare indexing demo:
+# go back to tp=0 then to tp=2, set tape[2] = 1, then perform index
+offset -2
+offset 2
+set i64 1
+load
+index
+
+# print the current tape pointer (should be 3)
+where
+print
+
+halt

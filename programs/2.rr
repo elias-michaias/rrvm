@@ -1,0 +1,59 @@
+# Sample 2: functions, if/else, and while demo (converted from programs/2.c)
+#
+# Function f0: pushes 7 and 35, returns their sum
+# Function f1: pushes 5 and 3, returns their product
+#
+# Main:
+#  - call f0, call f1, add results, print
+#  - demonstrate if/else with a true condition
+#  - demonstrate a while loop (countdown)
+
+func f0
+  push i64 7
+  push i64 35
+  add
+  ret
+end
+
+func f1
+  push i64 5
+  push i64 3
+  mul
+  ret
+end
+
+# main body
+call f0
+call f1
+add
+print
+
+# if/else demo: condition true -> prints 100
+push i64 1
+if
+  push i64 100
+  print
+else
+  push i64 200
+  print
+end
+
+# while demo (condition-first)
+# use a stored counter at tape[tp]
+push i64 4
+store
+
+# label marking the condition start
+label cond1
+load
+while cond1
+  # body: load counter, print it, decrement and store back
+  load
+  print
+  load
+  push i64 1
+  sub
+  store
+end
+
+halt

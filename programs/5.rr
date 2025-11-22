@@ -1,0 +1,45 @@
+# Sample 5: Pointer stack stress test (converted from programs/5.c)
+#
+# Behavior:
+#  - Create a chain of pointers: tape[0]=1, tape[1]=2, tape[2]=3
+#  - Return to start, then deref three times to walk the chain (tp becomes 3)
+#  - At deepest cell store 999
+#  - refer three times to unwind pointer stack back to 0
+#  - where / print => should print 0
+#  - offset 3, load / print => should print 999
+#
+# NOTE: Only whole-line comments starting with '#' are allowed.
+
+# Build pointer chain at tape[0..2]
+set ptr 1
+offset 1
+set ptr 2
+offset 1
+set ptr 3
+
+# go back to start
+offset -2
+
+# chase pointers: deref three times (tp -> 1 -> 2 -> 3)
+deref
+deref
+deref
+
+# at deepest cell (tp == 3) write value 999
+set i64 999
+
+# unwind pointer stack back to original tp (0)
+refer
+refer
+refer
+
+# show current tp (expect 0)
+where
+print
+
+# jump to cell 3 and print stored value (999)
+offset 3
+load
+print
+
+halt

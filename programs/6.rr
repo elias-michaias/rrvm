@@ -1,0 +1,74 @@
+# Sample 6: Remainder, logical, bitwise, shifts, and GEZ demo (converted from programs/6.c)
+#
+# Expected behavior (each print prints one line):
+# 1) 10 % 3 = 1
+# 2) not 0 -> 1
+# 3) bitand(5,3) -> 1
+# 4) bitor(5,2) -> 7
+# 5) bitxor(6,3) -> 5
+# 6) lsh(1,3) -> 8
+# 7) lrsh(16,2) -> 4
+# 8) arsh(-8,1) -> -4
+# 9) gez(-1) -> 0
+# 10) gez(0) -> 1
+#
+# Notes:
+# - Only whole-line comments beginning with '#' are allowed.
+# - Each instruction must be on its own line.
+
+# remainder: 10 % 3
+push i64 10
+push i64 3
+rem
+print
+
+# logical NOT on bool
+push bool 0
+not
+print
+
+# bitwise AND (unsigned)
+push u64 5
+push u64 3
+bitand
+print
+
+# bitwise OR (unsigned)
+push u64 5
+push u64 2
+bitor
+print
+
+# bitwise XOR (unsigned)
+push u64 6
+push u64 3
+bitxor
+print
+
+# left shift: 1 << 3 = 8
+push u64 1
+push u64 3
+lsh
+print
+
+# logical right shift: 16 >> 2 = 4 (unsigned)
+push u64 16
+push u64 2
+lrsh
+print
+
+# arithmetic right shift: -8 >> 1 = -4 (signed)
+push i64 -8
+push i64 1
+arsh
+print
+
+# GEZ tests
+push i64 -1
+gez
+print
+push i64 0
+gez
+print
+
+halt

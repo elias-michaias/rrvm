@@ -1,0 +1,40 @@
+# Sample 4: Calls and pointer interactions (converted from programs/4.c)
+# - func f0: computes 7 + 10 and returns the value
+# - func f1: sets tape[tp] = 4 (a pointer)
+# - main:
+#     call f1 to initialize tape[0] = 4
+#     call f0 to compute 7+10 (leaves 17 on stack)
+#     move 4; store -> store return value at tape[4]
+#     move -4 to restore tp
+#     deref -> tp := tape[tp] (should become 4)
+#     offset 0; load; print -> print value at tape[4] (should be 17)
+#     halt
+
+func f0
+  push i64 7
+  push i64 10
+  add
+  ret
+end
+
+func f1
+  set ptr 4
+  ret
+end
+
+# main
+call f1
+call f0
+
+# store the return value into tape[4] by moving tp temporarily
+move 4
+store
+move -4
+
+# deref -> tp = tape[tp] (should be 4)
+deref
+offset 0
+load
+print
+
+halt

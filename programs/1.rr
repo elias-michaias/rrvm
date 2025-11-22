@@ -1,0 +1,22 @@
+# Sample 1: Pointer instructions demo (converted from programs/1.c)
+# - set ptr 1        : store a pointer value (TYPE_PTR) into tape[tp] (tp starts at 0)
+# - deref            : tp := tape[tp] (push old tp on tp_stack)
+# - set i64 123      : store 123 at new tp
+# - refer            : restore previous tp from tp_stack
+# - offset 1         : move tp to 1
+# - load / print     : print value at tape[1] (should be 123)
+# - offset -1        : move back to tp=0
+# - where / print    : print current tp (0)
+# - halt             : stop execution
+
+set ptr 1
+deref
+set i64 123
+refer
+offset 1
+load
+print
+offset -1
+where
+print
+halt
