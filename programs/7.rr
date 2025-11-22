@@ -1,0 +1,93 @@
+# Test 7: types and type operations (numbers only)
+#
+# This file demonstrates:
+#  - typed integer arithmetic (i32)
+#  - unsigned wrap-around behavior (u32)
+#  - bitwise operations (u32)
+#  - shifts (u64)
+#  - logical ops on bool (or/and/not)
+#  - remainder (i64)
+#  - tape store/load with explicit type (i32)
+#  - printing u8 codes (a numeric "message")
+#
+# Each result is printed as a number on its own line.
+
+# --- Integer arithmetic (signed i32) ---
+push i32 10
+push i32 20
+add
+print      # expect 30
+
+# --- Unsigned subtraction demonstrating wrap / interpretation ---
+push u32 2
+push u32 5
+sub
+print      # signed op produces -3 as value; printed as unsigned => large wrap (demonstrates type handling)
+
+# --- Remainder (signed) with i64 ---
+push i64 10
+push i64 3
+rem
+print      # expect 1
+
+# --- Bitwise ops (u32) ---
+push u32 6    # 0b0110
+push u32 3    # 0b0011
+bitand
+print        # expect 2
+
+push u32 5    # 0101
+push u32 2    # 0010
+bitor
+print        # expect 7
+
+push u32 6
+push u32 3
+bitxor
+print        # expect 5
+
+# --- Shifts (u64) ---
+push u64 1
+push u64 3
+lsh
+print        # expect 8
+
+push u64 16
+push u64 2
+lrsh
+print        # expect 4
+
+# --- Logical ops (bool) ---
+push bool 0
+push bool 1
+or
+print        # expect 1
+
+push bool 1
+push bool 0
+and
+print        # expect 0
+
+push bool 0
+not
+print        # expect 1
+
+# --- Tape set/load (i32) ---
+# store immediate into tape[tp] and then load it back
+set i32 777
+load
+print        # expect 777
+
+# --- "Message" as sequence of u8 ASCII codes (as chars) ---
+# Print 'H','i','!' using printchar (no automatic newline)
+push u8 72
+printchar
+push u8 105
+printchar
+push u8 33
+printchar
+# print newline (LF = 10)
+push u8 10
+printchar
+
+halt

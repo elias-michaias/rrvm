@@ -19,20 +19,20 @@
  *        a single NULL element.
  *      * Entire-line comment (first non-space char is '#') -> treated like
  *        an empty line (returns 0 and `*out_tokens` points to array with NULL).
- *      * A '#' that appears after some non-space characters (mid-line '#')
- *        is disallowed by design: the tokenizer returns -2 and leaves
- *        `*out_tokens` unmodified.
+ *      * A '#' that appears after some non-space characters is treated as a
+ *        trailing comment: the '#' and everything after it is ignored and
+ *        tokenization returns only the tokens before the '#'.
  *
  *    On allocation failure returns -1.
  *
  *  - `lexer_free_tokens` frees memory allocated by `lexer_tokenize_line`.
  */
-
+ 
 #include "lexer.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
+ 
 /* Helper: duplicate a substring of length `len`. Returns malloc'ed NUL-terminated
  * string or NULL on allocation failure.
  */
@@ -43,7 +43,7 @@ static char *lex_dup_substr(const char *s, size_t len) {
     d[len] = '\0';
     return d;
 }
-
+ 
 int lexer_is_comment_line(const char *line) {
     if (!line) return 0;
     const char *p = line;
@@ -53,10 +53,10 @@ int lexer_is_comment_line(const char *line) {
     if (*p == '\0') return 0;
     return (*p == '#') ? 1 : 0;
 }
-
+ 
 int lexer_tokenize_line(const char *line, char ***out_tokens) {
     if (!out_tokens) return -1; /* invalid caller usage */
-
+ 
     /* Handle NULL input as empty line */
     if (!line) {
         char **arr = (char **)malloc(sizeof(char *));
@@ -65,7 +65,7 @@ int lexer_tokenize_line(const char *line, char ***out_tokens) {
         *out_tokens = arr;
         return 0;
     }
-
+ 
     const char *p = line;
     /* detect leading whitespace and first non-space char */
     const char *q = p;
@@ -86,49 +86,41 @@ int lexer_tokenize_line(const char *line, char ***out_tokens) {
         *out_tokens = arr;
         return 0;
     }
-
-    /* Tokenize: split on whitespace; but disallow any '#' appearing after
-     * the first non-space character (mid-line comment).
-     */
+ 
+    /* Tokenize: split on whitespace; treat '#' as start of trailing comment. */
     size_t capacity = 8;
     size_t count = 0;
     char **tokens = (char **)malloc(capacity * sizeof(char *));
     if (!tokens) return -1;
-
+ 
     while (*p) {
         /* skip whitespace */
         while (*p && isspace((unsigned char)*p)) ++p;
         if (!*p) break;
-
-        /* If we encounter a '#', it's a mid-line '#' because we already handled
-         * the case where first non-space char is '#'. Return error.
-         */
-        if (*p == '#') {
-            /* cleanup partial allocations */
-            for (size_t i = 0; i < count; ++i) free(tokens[i]);
-            free(tokens);
-            return -2;
-        }
-
+ 
+        /* If we encounter a '#', treat the remainder of the line as a comment */
+        if (*p == '#') break;
+ 
         /* start of token */
         const char *start = p;
+        int saw_hash = 0;
         while (*p && !isspace((unsigned char)*p)) {
-            if (*p == '#') {
-                /* mid-line '#' encountered */
-                for (size_t i = 0; i < count; ++i) free(tokens[i]);
-                free(tokens);
-                return -2;
-            }
+            if (*p == '#') { saw_hash = 1; break; }
             ++p;
         }
         size_t len = (size_t)(p - start);
+        if (len == 0) {
+            /* if we hit '#' immediately after whitespace, stop processing */
+            if (saw_hash) break;
+            else continue;
+        }
         char *tok = lex_dup_substr(start, len);
         if (!tok) {
             for (size_t i = 0; i < count; ++i) free(tokens[i]);
             free(tokens);
             return -1;
         }
-
+ 
         if (count + 1 >= capacity) {
             size_t newcap = capacity * 2;
             char **tmp = (char **)realloc(tokens, newcap * sizeof(char *));
@@ -143,8 +135,11 @@ int lexer_tokenize_line(const char *line, char ***out_tokens) {
             capacity = newcap;
         }
         tokens[count++] = tok;
+ 
+        /* if token scan stopped at '#', treat rest of line as trailing comment */
+        if (saw_hash) break;
     }
-
+ 
     /* ensure NULL-terminated array */
     if (count + 1 > capacity) {
         char **tmp = (char **)realloc(tokens, (count + 1) * sizeof(char *));
@@ -159,7 +154,7 @@ int lexer_tokenize_line(const char *line, char ***out_tokens) {
     *out_tokens = tokens;
     return (int)count;
 }
-
+ 
 void lexer_free_tokens(char **tokens) {
     if (!tokens) return;
     for (size_t i = 0; tokens[i] != NULL; ++i) {

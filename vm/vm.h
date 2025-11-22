@@ -73,6 +73,7 @@ typedef enum {
     OP_LOAD,
     OP_STORE,
     OP_PRINT,
+    OP_PRINTCHAR,
 
     /* pointer/reference related */
     OP_DEREF, /* pointer-chase: set tp = tape[tp], push old tp to tp_stack */
@@ -170,6 +171,8 @@ typedef struct Backend {
     void (*op_load)(VM *vm);
     void (*op_store)(VM *vm);
     void (*op_print)(VM *vm);
+    /* print a single value as a character (uses the top stack value, formats as a char) */
+    void (*op_print_char)(VM *vm);
 
     /* pointer/reference hooks */
     void (*op_deref)(VM *vm);
@@ -313,6 +316,9 @@ static inline void run_vm(VM *vm, const Backend *backend) {
                 break;
             case OP_PRINT:
                 if (backend && backend->op_print) backend->op_print(vm);
+                break;
+            case OP_PRINTCHAR:
+                if (backend && backend->op_print_char) backend->op_print_char(vm);
                 break;
 
             case OP_DEREF:

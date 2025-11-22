@@ -14,10 +14,12 @@
  *    via `*err_msg` when non-zero is returned.
  *
  * Notes:
- *  - The parser expects the lexer rule: whole-line comments begin with '#'
- *    after optional leading whitespace. Mid-line '#' characters are treated as
- *    an error by the lexer/tokenizer (the lexer enforces the \"entire-line
- *    comment only\" rule).
+ *  - The parser accepts comments beginning with '#' anywhere on the line.
+ *    If the first non-space character is '#', the whole line is treated as a
+ *    comment and no tokens are produced. If a '#' appears after code on the
+ *    same line, the '#' and the remainder of the line are treated as a
+ *    trailing comment and ignored; tokenization returns only the tokens that
+ *    appear before the '#'.
  *  - On success the parser initializes `out_vm` similarly to how the C
  *    emit macros produce a VM: `out_vm->code` points to an allocated `word[]`
  *    and `out_vm->code_len` is set. The rest of the VM fields (ip/sp etc.)

@@ -6,12 +6,11 @@
  *
  * Minimal line-oriented lexer helpers for the RRVM textual frontend.
  *
- * - Supports full-line comments that start with '#' (after optional leading
- *   whitespace). A comment is only recognized if the first non-space character
- *   on the line is '#'. Mid-line '#' characters (i.e. after tokens) are
- *   considered an error to help catch accidental trailing comments; the parser
- *   is expected to enforce that rule if desired. See lexer_tokenize_line
- *   return values for the error code for mid-line '#' usage.
+ * - Supports comments that start with '#' anywhere on the line. If the first
+ *   non-space character is '#', the whole line is considered a comment and
+ *   tokenization yields zero tokens. If a '#' appears after code on the line,
+ *   the '#' and everything after it is treated as a trailing comment and is
+ *   ignored; tokenization returns only the tokens appearing before the '#'.
  *
  * - Tokenization is whitespace-separated. This header provides a small helper
  *   that splits a single line into tokens (char* strings) which the caller
@@ -25,7 +24,6 @@
  * Error codes (lexer_tokenize_line):
  *  - >= 0 : number of tokens returned (and *out_tokens will be set)
  *  - -1    : allocation failure
- *  - -2    : line contains a '#' after non-space characters (mid-line comment)
  *
  * The API intentionally keeps the lexer very small and line-oriented to make
  * it easy to integrate into a line-based parser. It does not produce token
@@ -55,11 +53,12 @@ int lexer_is_comment_line(const char *line);
  * Return values:
  *  - >= 0 : token count (also the length of the array without the terminating NULL)
  *  - -1    : allocation failure (out_tokens is left unmodified)
- *  - -2    : line contains a '#' after non-space characters (mid-line comment),
- *           tokenization refused to accept mid-line comments to enforce the
- *           \"entire-line comment only\" rule.
  *
  * Behavior:
+ *  - A '#' character begins a comment: if the first non-space character is '#',
+ *    the whole line is a comment and tokenization returns zero tokens. If a
+ *    '#' appears after code, the '#' and everything after it is ignored and
+ *    tokens before it are returned (i.e. trailing comments are supported).
  *  - Consecutive whitespace (space + tab) is treated as a single separator.
  *  - Empty lines produce token count 0 and `*out_tokens` will point to a
  *    valid pointer (an array with a single NULL entry).

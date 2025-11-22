@@ -125,6 +125,21 @@ static inline void interp_print(VM *vm) {
     }
 }
 
+/* print a single value as a character (no newline). The value is masked to
+ * the lowest 8 bits and written as a single byte to stdout. This does not
+ * append a newline; callers must emit a newline byte if desired.
+ */
+static inline void interp_print_char(VM *vm) {
+    assert(vm->sp > 0 && "interp_print_char: empty stack");
+    /* read type primarily for potential future behavior; we always convert to a byte */
+    (void)vm->types[vm->sp - 1];
+    word value = vm_pop(vm);
+    unsigned char ch = (unsigned char)(value & 0xFFu);
+    /* putchar returns EOF on error; ignore here but flush to keep output consistent */
+    putchar((int)ch);
+    fflush(stdout);
+}
+
 static inline void inter_setup(VM *vm) { /* nothing for now */ }
 
 static inline void inter_finalize(VM *vm, word imm) { /* nothing */ }
@@ -412,6 +427,7 @@ static const Backend __INTERPRETER = {
     .op_load = interp_load,
     .op_store = interp_store,
     .op_print = interp_print,
+    .op_print_char = interp_print_char,
 
     /* pointer/reference hooks */
     .op_deref = interp_deref,

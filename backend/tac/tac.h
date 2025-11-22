@@ -58,6 +58,7 @@ typedef enum {
     TAC_LOAD,
     TAC_STORE,
     TAC_PRINT,
+    TAC_PRINTCHAR,
 
     /* pointer / reference operations */
     TAC_DEREF, /* lhs = pointer temp, dst = result temp (load from tape/slot) */
@@ -366,6 +367,16 @@ static void tac_print(VM *vm) {
     assert(s->sp >= 1);
     int val = s->stack[--s->sp];
     tac_emit(&s->prog, (tac_instr){.op=TAC_PRINT, .lhs=val});
+}
+
+static void tac_print_char(VM *vm) {
+    tac_backend_state *s = tac_state(vm);
+    size_t opcode_ip = vm->ip > 0 ? vm->ip - 1 : 0;
+    tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
+
+    assert(s->sp >= 1);
+    int val = s->stack[--s->sp];
+    tac_emit(&s->prog, (tac_instr){.op=TAC_PRINTCHAR, .lhs=val});
 }
 
 // --- Pointer-op lowering helpers (VM -> TAC) ---
@@ -703,6 +714,7 @@ static const Backend __TAC = {
     .op_load = tac_load,
     .op_store= tac_store,
     .op_print= tac_print,
+    .op_print_char = tac_print_char,
 
     /* pointer/reference hooks */
     .op_deref = tac_deref,
@@ -819,6 +831,9 @@ static void tac_print_goal(FILE *out, const tac_instr *instr) {
             break;
         case TAC_PRINT:
             fprintf(out, "print(t%d)", instr->lhs);
+            break;
+        case TAC_PRINTCHAR:
+            fprintf(out, "printchar(t%d)", instr->lhs);
             break;
         case TAC_DEREF:
             fprintf(out, "deref(t%d, t%d)", instr->dst, instr->lhs);

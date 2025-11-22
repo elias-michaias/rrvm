@@ -19,9 +19,12 @@
  *   halt
  *
  * Comments:
- *   Only whole-line comments beginning with '#' after optional leading
- *   whitespace are accepted. Mid-line '#' characters will be rejected by the
- *   lexer/tokenizer and reported as a parse error.
+ *   Trailing and full-line comments beginning with '#' are supported.
+ *   If the first non-space character on the line is '#', the entire line
+ *   is treated as a comment and no tokens are produced. If a '#' appears
+ *   after code on the same line, the '#' and the remainder of the line are
+ *   treated as a trailing comment and ignored; tokenization returns only the
+ *   tokens that appear before the '#'.
  *
  * The parser emits the same VM opcode layout expected by vm.h. The caller is
  * responsible for freeing the produced `out_vm->code` buffer (use free()).
@@ -344,8 +347,7 @@ int parse_rr_string_to_vm(const char *src, VM *out_vm, char **err_msg) {
             free(buf);
             free_labeltable_and_patches(&labels, &wpatches);
             func_table_free(&funcs);
-            if (ntok == -2) set_error_msg(err_msg, "line %zu: mid-line '#' comments are not allowed", lineno);
-            else set_error_msg(err_msg, "line %zu: tokenization error", lineno);
+            set_error_msg(err_msg, "line %zu: tokenization error", lineno);
             return -1;
         }
         if (ntok == 0) { lexer_free_tokens(tokens); line = strtok(NULL, "\n"); continue; }
@@ -422,6 +424,7 @@ int parse_rr_string_to_vm(const char *src, VM *out_vm, char **err_msg) {
         } else if (strcasecmp(kwlow, "load") == 0) { EMIT0(OP_LOAD);
         } else if (strcasecmp(kwlow, "store") == 0) { EMIT0(OP_STORE);
         } else if (strcasecmp(kwlow, "print") == 0) { EMIT0(OP_PRINT);
+        } else if (strcasecmp(kwlow, "printchar") == 0 || strcasecmp(kwlow, "print_char") == 0) { EMIT0(OP_PRINTCHAR);
         } else if (strcasecmp(kwlow, "deref") == 0) { EMIT0(OP_DEREF);
         } else if (strcasecmp(kwlow, "refer") == 0) { EMIT0(OP_REFER);
         } else if (strcasecmp(kwlow, "where") == 0) { EMIT0(OP_WHERE);
