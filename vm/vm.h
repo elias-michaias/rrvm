@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// vm config
+/* VM configuration */
 #ifndef STACK_SIZE
 #define STACK_SIZE 1024
 #endif
@@ -36,6 +36,31 @@ typedef int32_t word;
 #error "WORD_BITS must be 32 or 64"
 #endif
 
+/* Primitive type tags for stack/tape values.
+ *
+ * The VM is strict: it assumes input programs are well-typed. The interpreter
+ * and TAC lowering will assert on type mismatches. Values are stored in the
+ * existing `word` slots; narrower integer types and floats are represented as
+ * bit patterns in that storage and interpreted according to the TypeTag.
+ */
+typedef enum {
+    TYPE_UNKNOWN = 0,
+    TYPE_I8,    /* signed 8-bit */
+    TYPE_U8,    /* unsigned 8-bit (char) */
+    TYPE_I16,   /* signed 16-bit */
+    TYPE_U16,   /* unsigned 16-bit */
+    TYPE_I32,   /* signed 32-bit */
+    TYPE_U32,   /* unsigned 32-bit */
+    TYPE_I64,   /* signed 64-bit */
+    TYPE_U64,   /* unsigned 64-bit */
+    TYPE_F32,   /* 32-bit float (bit-cast into word) */
+    TYPE_F64,   /* 64-bit double (bit-cast into word) */
+    TYPE_BOOL,
+    TYPE_PTR,   /* pointer/tape index */
+    TYPE_VOID,
+} TypeTag;
+
+/* VM opcodes */
 typedef enum {
     OP_NOP = 0,
     OP_PUSH,
@@ -67,16 +92,16 @@ typedef enum {
     OP_ENDBLOCK,
 
     /* new multi-element / bitwise / logical ops (each takes a single immediate N) */
-    OP_ORASSign, /* logical OR-assign: reg[i] ||= tape_ptr[i] */
-    OP_ANDASSign, /* logical AND-assign: reg[i] &&= tape_ptr[i] */
-    OP_NOT,      /* logical NOT: reg[i] = !reg[i] (takes N) */
-    OP_BITAND,   /* bitwise AND: reg[i] &= tape_ptr[i] */
-    OP_BITOR,    /* bitwise OR: reg[i] |= tape_ptr[i] */
-    OP_BITXOR,   /* bitwise XOR: reg[i] ^= tape_ptr[i] */
-    OP_LSH,      /* left shift: reg[i] <<= tape_ptr[i] */
-    OP_LRSH,     /* logical right shift: reg[i] = (uint64_t)reg[i] >> tape_ptr[i] */
-    OP_ARSH,     /* arithmetic right shift: reg[i] >>= tape_ptr[i] */
-    OP_GEZ,      /* greater-or-equal-zero: reg[i] = reg[i] >= 0 */
+    OP_ORASSign,
+    OP_ANDASSign,
+    OP_NOT,
+    OP_BITAND,
+    OP_BITOR,
+    OP_BITXOR,
+    OP_LSH,
+    OP_LRSH,
+    OP_ARSH,
+    OP_GEZ,
 
     OP_HALT,
 } OpCode;
@@ -84,15 +109,22 @@ typedef enum {
 /* block stack entry used by interpreter for structured blocks */
 typedef struct { OpCode type; size_t ip; } block_entry;
 
+/* VM state */
 typedef struct {
     const word *code;
     size_t code_len;
     size_t ip;
+
+    /* data stack */
     word stack[STACK_SIZE];
     int sp;
 
+    /* parallel type array for data stack */
+    TypeTag types[STACK_SIZE];
+
     /* tape and pointer */
     word tape[TAPE_SIZE];
+    TypeTag tape_types[TAPE_SIZE];
     int tp;
 
     /* pointer stack to support nested deref/refer */
@@ -117,13 +149,17 @@ typedef struct {
     block_entry block_stack[256];
     int block_sp;
 
-    void *user_data; // backend-specific data
+    void *user_data; /* backend-specific data */
 } VM;
 
+/* Backend hooks. op_push and op_set now receive a TypeTag (as int) along with the immediate. */
 typedef struct Backend {
     void (*setup)(VM *vm);
     void (*finalize)(VM *vm, word imm);
-    void (*op_push)(VM *vm, word imm);
+
+    /* push receives (vm, type, imm) */
+    void (*op_push)(VM *vm, int type, word imm);
+
     void (*op_add)(VM *vm);
     void (*op_sub)(VM *vm);
     void (*op_mul)(VM *vm);
@@ -141,19 +177,20 @@ typedef struct Backend {
     void (*op_where)(VM *vm);
     void (*op_offset)(VM *vm, word imm);
     void (*op_index)(VM *vm);
-    void (*op_set)(VM *vm, word imm);
 
-    /* control/call hooks (optional) */
+    /* set receives (vm, type, imm) */
+    void (*op_set)(VM *vm, int type, word imm);
+
+    /* control/call hooks */
     void (*op_function)(VM *vm, word func_index);
     void (*op_call)(VM *vm, word func_index);
     void (*op_return)(VM *vm);
-    /* op_while still receives an immediate indicating the ip of the condition's first instruction */
     void (*op_while)(VM *vm, word cond_ip);
     void (*op_if)(VM *vm);
     void (*op_else)(VM *vm);
     void (*op_endblock)(VM *vm);
 
-    /* new multi-element / bitwise / logical hooks (scalar versions) */
+    /* new multi-element / bitwise / logical hooks */
     void (*op_orassign)(VM *vm);
     void (*op_andassign)(VM *vm);
     void (*op_not)(VM *vm);
@@ -166,6 +203,7 @@ typedef struct Backend {
     void (*op_gez)(VM *vm);
 } Backend;
 
+/* simple stack helpers */
 static inline void vm_push(VM *vm, word imm) {
     assert(vm->sp < STACK_SIZE && "Stack overflow");
     vm->stack[vm->sp++] = imm;
@@ -187,6 +225,7 @@ static inline int vm_pop_tp(VM *vm) {
     return vm->tp_stack[--vm->tp_sp];
 }
 
+/* emit helpers for building programs (in the sample program files) */
 static inline size_t emit0(word *buf, size_t pos, word op) {
     buf[pos++] = op;
     return pos;
@@ -198,9 +237,20 @@ static inline size_t emit1(word *buf, size_t pos, word op, word imm) {
     return pos;
 }
 
+/* emit helper for ops that have two immediates (type + imm) */
+static inline size_t emit2(word *buf, size_t pos, word op, word imm1, word imm2) {
+    buf[pos++] = op;
+    buf[pos++] = imm1;
+    buf[pos++] = imm2;
+    return pos;
+}
+
+/* VM main loop: dispatch to backend hooks. OP_PUSH and OP_SET read a type immediate
+ * followed by the value immediate.
+ */
 static inline void run_vm(VM *vm, const Backend *backend) {
 
-    if (backend->setup) backend->setup(vm);
+    if (backend && backend->setup) backend->setup(vm);
 
     vm->ip = 0;
     vm->sp = 0;
@@ -212,188 +262,232 @@ static inline void run_vm(VM *vm, const Backend *backend) {
     vm->block_sp = 0;
     memset(vm->tape, 0, sizeof(vm->tape));
 
+    /* initialize types to unknown */
+    for (size_t i = 0; i < STACK_SIZE; ++i) vm->types[i] = TYPE_UNKNOWN;
+    for (size_t i = 0; i < TAPE_SIZE; ++i) vm->tape_types[i] = TYPE_UNKNOWN;
+
     while (vm->ip < vm->code_len) {
         OpCode op = (OpCode)vm->code[vm->ip++];
 
         switch (op) {
             case OP_NOP:
                 break;
+
             case OP_PUSH: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                /* format: OP_PUSH, type_tag, imm */
+                assert(vm->ip + 1 < vm->code_len && "Unexpected end of code (PUSH expects type + imm)");
+                int type = (int)vm->code[vm->ip++];
                 word imm = vm->code[vm->ip++];
-                if (backend->op_push) backend->op_push(vm, imm);
+                if (backend && backend->op_push) backend->op_push(vm, type, imm);
                 break;
             }
+
             case OP_ADD:
-                if (backend->op_add) backend->op_add(vm);
+                if (backend && backend->op_add) backend->op_add(vm);
                 break;
             case OP_SUB:
-                if (backend->op_sub) backend->op_sub(vm);
+                if (backend && backend->op_sub) backend->op_sub(vm);
                 break;
             case OP_MUL:
-                if (backend->op_mul) backend->op_mul(vm);
+                if (backend && backend->op_mul) backend->op_mul(vm);
                 break;
             case OP_DIV:
-                if (backend->op_div) backend->op_div(vm);
+                if (backend && backend->op_div) backend->op_div(vm);
                 break;
             case OP_REM:
-                if (backend->op_rem) backend->op_rem(vm);
+                if (backend && backend->op_rem) backend->op_rem(vm);
                 break;
+
             case OP_MOVE: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                assert(vm->ip < vm->code_len && "Unexpected end of code (MOVE expects imm)");
                 word imm = vm->code[vm->ip++];
-                if (backend->op_move) backend->op_move(vm, imm);
+                if (backend && backend->op_move) backend->op_move(vm, imm);
                 break;
             }
+
             case OP_LOAD:
-                if (backend->op_load) backend->op_load(vm);
+                if (backend && backend->op_load) backend->op_load(vm);
                 break;
             case OP_STORE:
-                if (backend->op_store) backend->op_store(vm);
+                if (backend && backend->op_store) backend->op_store(vm);
                 break;
             case OP_PRINT:
-                if (backend->op_print) backend->op_print(vm);
+                if (backend && backend->op_print) backend->op_print(vm);
                 break;
 
             case OP_DEREF:
-                if (backend->op_deref) backend->op_deref(vm);
+                if (backend && backend->op_deref) backend->op_deref(vm);
                 break;
             case OP_REFER:
-                if (backend->op_refer) backend->op_refer(vm);
+                if (backend && backend->op_refer) backend->op_refer(vm);
                 break;
             case OP_WHERE:
-                if (backend->op_where) backend->op_where(vm);
+                if (backend && backend->op_where) backend->op_where(vm);
                 break;
+
             case OP_OFFSET: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                assert(vm->ip < vm->code_len && "Unexpected end of code (OFFSET expects imm)");
                 word imm = vm->code[vm->ip++];
-                if (backend->op_offset) backend->op_offset(vm, imm);
+                if (backend && backend->op_offset) backend->op_offset(vm, imm);
                 break;
             }
+
             case OP_INDEX:
-                if (backend->op_index) backend->op_index(vm);
+                if (backend && backend->op_index) backend->op_index(vm);
                 break;
+
             case OP_SET: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                /* format: OP_SET, type_tag, imm */
+                assert(vm->ip + 1 < vm->code_len && "Unexpected end of code (SET expects type + imm)");
+                int type = (int)vm->code[vm->ip++];
                 word imm = vm->code[vm->ip++];
-                if (backend->op_set) backend->op_set(vm, imm);
+                if (backend && backend->op_set) backend->op_set(vm, type, imm);
                 break;
             }
 
             case OP_FUNCTION: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                assert(vm->ip < vm->code_len && "Unexpected end of code (FUNCTION expects imm)");
                 word func_idx = vm->code[vm->ip++];
-                /* backends may record function boundaries; otherwise ignore at runtime */
-                if (backend->op_function) backend->op_function(vm, func_idx);
+                if (backend && backend->op_function) backend->op_function(vm, func_idx);
                 break;
             }
 
             case OP_CALL: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                assert(vm->ip < vm->code_len && "Unexpected end of code (CALL expects imm)");
                 word func_idx = vm->code[vm->ip++];
-                if (backend->op_call) backend->op_call(vm, func_idx);
+                if (backend && backend->op_call) backend->op_call(vm, func_idx);
                 break;
             }
 
             case OP_RETURN:
-                if (backend->op_return) backend->op_return(vm);
+                if (backend && backend->op_return) backend->op_return(vm);
                 break;
 
             case OP_WHILE: {
-                assert(vm->ip < vm->code_len && "Unexpected end of code");
+                assert(vm->ip < vm->code_len && "Unexpected end of code (WHILE expects imm)");
                 word cond_ip = vm->code[vm->ip++];
-                if (backend->op_while) backend->op_while(vm, cond_ip);
+                if (backend && backend->op_while) backend->op_while(vm, cond_ip);
                 break;
             }
+
             case OP_IF:
-                if (backend->op_if) backend->op_if(vm);
+                if (backend && backend->op_if) backend->op_if(vm);
                 break;
             case OP_ELSE:
-                if (backend->op_else) backend->op_else(vm);
+                if (backend && backend->op_else) backend->op_else(vm);
                 break;
             case OP_ENDBLOCK:
-                if (backend->op_endblock) backend->op_endblock(vm);
+                if (backend && backend->op_endblock) backend->op_endblock(vm);
                 break;
 
-            /* scalar multi/bitwise/logical op handlers (no immediates) */
             case OP_ORASSign:
-                if (backend->op_orassign) backend->op_orassign(vm);
+                if (backend && backend->op_orassign) backend->op_orassign(vm);
                 break;
             case OP_ANDASSign:
-                if (backend->op_andassign) backend->op_andassign(vm);
+                if (backend && backend->op_andassign) backend->op_andassign(vm);
                 break;
             case OP_NOT:
-                if (backend->op_not) backend->op_not(vm);
+                if (backend && backend->op_not) backend->op_not(vm);
                 break;
             case OP_BITAND:
-                if (backend->op_bitand) backend->op_bitand(vm);
+                if (backend && backend->op_bitand) backend->op_bitand(vm);
                 break;
             case OP_BITOR:
-                if (backend->op_bitor) backend->op_bitor(vm);
+                if (backend && backend->op_bitor) backend->op_bitor(vm);
                 break;
             case OP_BITXOR:
-                if (backend->op_bitxor) backend->op_bitxor(vm);
+                if (backend && backend->op_bitxor) backend->op_bitxor(vm);
                 break;
             case OP_LSH:
-                if (backend->op_lsh) backend->op_lsh(vm);
+                if (backend && backend->op_lsh) backend->op_lsh(vm);
                 break;
             case OP_LRSH:
-                if (backend->op_lrsh) backend->op_lrsh(vm);
+                if (backend && backend->op_lrsh) backend->op_lrsh(vm);
                 break;
             case OP_ARSH:
-                if (backend->op_arsh) backend->op_arsh(vm);
+                if (backend && backend->op_arsh) backend->op_arsh(vm);
                 break;
             case OP_GEZ:
-                if (backend->op_gez) backend->op_gez(vm);
+                if (backend && backend->op_gez) backend->op_gez(vm);
                 break;
 
             case OP_HALT:
                 return;
+
             default:
                 fprintf(stderr, "Unknown opcode: %d\n", op);
                 exit(1);
         }
     }
-
 }
 
-// helpers for setup
+/* helpers for constructing VM programs in C sources */
 #define __init(size) \
     static word prog[size]; \
     size_t p = 0;
 
 #define __fin VM vm = { .code = prog, .code_len = p, .ip = 0, .sp = 0, }; return vm
 
-// helpers for each op
-#define __push(imm) p = emit1(prog, p, OP_PUSH, imm)
+/* Typed macros are the default. Use the shorthand type constants (e.g. __I64)
+ * as the first argument to typed emit macros, e.g. __push(__I64, 1).
+ *
+ * Backwards-compat: a compatibility alias __push_untyped and __set_untyped
+ * are provided if you need the old behaviour (they emit TYPE_UNKNOWN).
+ */
+
+/* shorthand type constants (use these when emitting code) */
+#define __I8   TYPE_I8
+#define __U8   TYPE_U8
+#define __I16  TYPE_I16
+#define __U16  TYPE_U16
+#define __I32  TYPE_I32
+#define __U32  TYPE_U32
+#define __I64  TYPE_I64
+#define __U64  TYPE_U64
+#define __F32  TYPE_F32
+#define __F64  TYPE_F64
+#define __BOOL TYPE_BOOL
+#define __PTR  TYPE_PTR
+#define __VOID TYPE_VOID
+#define __UNKNOWN TYPE_UNKNOWN
+
+/* typed push/set macros: first arg is a type token (one of the __I64/__U32 etc) */
+#define __push(typ, imm) p = emit2(prog, p, OP_PUSH, (word)(typ), (word)(imm))
+#define __push_t(typ, imm) __push(typ, imm)
+#define __set(typ, imm) p = emit2(prog, p, OP_SET, (word)(typ), (word)(imm))
+#define __set_t(typ, imm) __set(typ, imm)
+
+/* compatibility aliases that mirror the previous untyped macros (emit TYPE_UNKNOWN) */
+#define __push_untyped(imm) p = emit2(prog, p, OP_PUSH, (word)TYPE_UNKNOWN, (word)(imm))
+#define __set_untyped(imm) p = emit2(prog, p, OP_SET, (word)TYPE_UNKNOWN, (word)(imm))
+
 #define __add    p = emit0(prog, p, OP_ADD)
 #define __sub    p = emit0(prog, p, OP_SUB)
 #define __mul    p = emit0(prog, p, OP_MUL)
 #define __div    p = emit0(prog, p, OP_DIV)
-#define __rem p = emit0(prog, p, OP_REM)
-#define __move(imm) p = emit1(prog, p, OP_MOVE, imm)
-#define __load  p = emit0(prog, p, OP_LOAD)
-#define __store p = emit0(prog, p, OP_STORE)
+#define __rem    p = emit0(prog, p, OP_REM)
+#define __move(imm) p = emit1(prog, p, OP_MOVE, (word)(imm))
+#define __load   p = emit0(prog, p, OP_LOAD)
+#define __store  p = emit0(prog, p, OP_STORE)
 #define __print  p = emit0(prog, p, OP_PRINT)
 #define __halt   p = emit0(prog, p, OP_HALT)
 
-// pointer/reference emit helpers
-#define __deref p = emit0(prog, p, OP_DEREF)
-#define __refer p = emit0(prog, p, OP_REFER)
-#define __where p = emit0(prog, p, OP_WHERE)
-#define __offset(imm) p = emit1(prog, p, OP_OFFSET, imm)
-#define __index p = emit0(prog, p, OP_INDEX)
-#define __set(imm) p = emit1(prog, p, OP_SET, imm)
+/* pointer/reference emit helpers */
+#define __deref  p = emit0(prog, p, OP_DEREF)
+#define __refer  p = emit0(prog, p, OP_REFER)
+#define __where  p = emit0(prog, p, OP_WHERE)
+#define __offset(imm) p = emit1(prog, p, OP_OFFSET, (word)(imm))
+#define __index  p = emit0(prog, p, OP_INDEX)
 
-/* function / control flow emit helpers */
-#define __func(idx) p = emit1(prog, p, OP_FUNCTION, idx)
-#define __call(idx)     p = emit1(prog, p, OP_CALL, idx)
+/* control flow emit helpers */
+#define __func(idx) p = emit1(prog, p, OP_FUNCTION, (word)(idx))
+#define __call(idx) p = emit1(prog, p, OP_CALL, (word)(idx))
 #define __ret      p = emit0(prog, p, OP_RETURN)
 #define __label(name) size_t __lbl_##name = p
 #define __while(name) p = emit1(prog, p, OP_WHILE, (word)__lbl_##name)
-#define __if          p = emit0(prog, p, OP_IF)
-#define __else        p = emit0(prog, p, OP_ELSE)
-#define __end        p = emit0(prog, p, OP_ENDBLOCK)
+#define __if       p = emit0(prog, p, OP_IF)
+#define __else     p = emit0(prog, p, OP_ELSE)
+#define __end      p = emit0(prog, p, OP_ENDBLOCK)
 
 /* emit helpers for new multi-element / bitwise / logical ops (stack-oriented, no immediate) */
 #define __orass    p = emit0(prog, p, OP_ORASSign)
@@ -407,4 +501,4 @@ static inline void run_vm(VM *vm, const Backend *backend) {
 #define __arsh     p = emit0(prog, p, OP_ARSH)
 #define __gez      p = emit0(prog, p, OP_GEZ)
 
-#endif // VM_H
+#endif /* VM_H */

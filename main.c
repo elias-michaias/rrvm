@@ -2,7 +2,7 @@
 #define STACK_SIZE 1024
 #define WORD_BITS 64
 #ifndef BACKEND
-#define BACKEND __TAC
+#define BACKEND __INTERPRETER
 #endif
 
 
@@ -20,7 +20,7 @@
 
 int main() {
     VM vm[6] = { __1(), __2(), __3(), __4(), __5(), __6() };
-    
+
     for (int i = 0; i < sizeof(vm)/sizeof(vm[0]); ++i) {
       printf("=== PROGRAM %i ===\n", i+1);
 

@@ -12,11 +12,11 @@ VM __5() {
        - offset(3) then load/print 999
     */
 
-    __set(1); /* tape[0] = 1 */
+    __set(__PTR, 1); /* tape[0] = 1 */
     __offset(1);
-    __set(2); /* tape[1] = 2 */
+    __set(__PTR, 2); /* tape[1] = 2 */
     __offset(1);
-    __set(3); /* tape[2] = 3 */
+    __set(__PTR, 3); /* tape[2] = 3 */
 
     /* go back to start */
     __offset(-2);
@@ -26,7 +26,7 @@ VM __5() {
     __deref; /* tp -> tape[1] = 2 */
     __deref; /* tp -> tape[2] = 3 */
 
-    __set(999);
+    __set(__I64, 999);
 
     /* unwind pointer stack */
     __refer; __refer; __refer;
@@ -39,4 +39,3 @@ VM __5() {
     __halt;
     __fin;
 }
-

@@ -3,10 +3,10 @@
 VM __1() {
     __init(64);
 
-    /* Pointer instructions demo:
-       - set tape[0] = 1 (a pointer to cell 1)
+    /* Pointer instructions demo (typed):
+       - set tape[0] = 1 (a pointer to cell 1)  -> TYPE_PTR
        - deref -> tp becomes tape[0] (1), saving old tp on tp_stack
-       - set tape[1] = 123
+       - set tape[1] = 123                      -> TYPE_I64
        - refer -> restore tp back to 0
        - offset(1) -> tp = 1
        - load/print -> should print 123
@@ -15,13 +15,13 @@ VM __1() {
     */
 
     /* at tp=0: store pointer to cell 1 */
-    __set(1);
+    __set(__PTR, 1);
 
     /* dereference: tp -> tape[0] (=1) */
     __deref;
 
-    /* at tp=1: store value 123 */
-    __set(123);
+    /* at tp=1: store value 123 (signed 64-bit) */
+    __set(__I64, 123);
 
     /* go back to previous tp (0) */
     __refer;
@@ -41,4 +41,3 @@ VM __1() {
     __halt;
     __fin;
 }
-

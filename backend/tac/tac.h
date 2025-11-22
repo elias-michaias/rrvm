@@ -81,6 +81,10 @@ typedef struct {
     int lhs;
     int rhs;
     word imm;
+    /* Optional type tag for the destination temp produced by this instruction.
+       Stored as an integer corresponding to TypeTag. If no destination or
+       unknown, this will be TYPE_UNKNOWN (0). */
+    int dst_type;
 } tac_instr;
 
 typedef struct {
@@ -114,6 +118,10 @@ typedef struct {
     /* mapping from VM opcode ip -> tac label id (if we insert a label to mark vm-ip) */
     int *vm_ip_to_tac_label;
     size_t vm_code_len;
+
+    /* per-temp type information (TypeTag stored as int). Dynamically grown as temps are allocated. */
+    int *temp_types;
+    int temp_cap;
 } tac_backend_state;
 
 // --- Helpers ---
@@ -161,6 +169,8 @@ static void tac_setup(VM *vm) {
     s->label_counter = 1; /* start label ids at 1 */
     s->block_sp = 0;
     s->vm_code_len = vm->code_len;
+    s->temp_types = NULL;
+    s->temp_cap = 0;
     /* init func_label mapping to -1 (unused) */
     for (size_t i = 0; i < sizeof(s->func_label)/sizeof(s->func_label[0]); ++i) s->func_label[i] = -1;
     /* allocate vm_ip -> tac index map and vm_ip -> tac label map and initialize to -1 */
@@ -181,6 +191,7 @@ static void tac_finalize(VM *vm, word imm) {
     tac_free(&s->prog);
     free(s->vm_ip_to_tac_index);
     free(s->vm_ip_to_tac_label);
+    free(s->temp_types);
     free(s);
     vm->user_data = NULL;
 }
@@ -225,14 +236,27 @@ static void tac_fix_vm_map_after_insert(tac_backend_state *s, size_t idx) {
     }
 }
 
-static inline void tac_push(VM *vm, word imm) {
+static inline void tac_ensure_temp_capacity(tac_backend_state *s, int needed) {
+    if (needed < s->temp_cap) return;
+    int newcap = s->temp_cap ? s->temp_cap * 2 : 16;
+    while (newcap <= needed) newcap *= 2;
+    s->temp_types = (int*)realloc(s->temp_types, sizeof(int) * newcap);
+    /* initialize new slots to TYPE_UNKNOWN */
+    for (int i = s->temp_cap; i < newcap; ++i) s->temp_types[i] = TYPE_UNKNOWN;
+    s->temp_cap = newcap;
+}
+
+static inline void tac_push(VM *vm, int type, word imm) {
     tac_backend_state *s = tac_state(vm);
-    /* compute opcode ip: PUSH consumes opcode+imm -> vm->ip - 2 */
-    size_t opcode_ip = vm->ip >= 2 ? vm->ip - 2 : 0;
+    /* compute opcode ip: PUSH consumes opcode + type + imm -> vm->ip - 3 */
+    size_t opcode_ip = vm->ip >= 3 ? vm->ip - 3 : 0;
     tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
 
     int tmp = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=TAC_CONST, .dst=tmp, .imm=imm});
+    /* ensure temp_types can hold this temp id */
+    tac_ensure_temp_capacity(s, tmp);
+    s->temp_types[tmp] = type;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_CONST, .dst=tmp, .imm=imm, .dst_type=type});
     s->stack[s->sp++] = tmp;
 }
 
@@ -246,7 +270,12 @@ static inline void tac_binary(VM *vm, TacOp op) {
     int rhs = s->stack[--s->sp];
     int lhs = s->stack[--s->sp];
     int dst = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){.op=op, .dst=dst, .lhs=lhs, .rhs=rhs});
+    /* infer dst type from lhs (require toolchain to produce well-typed input) */
+    tac_ensure_temp_capacity(s, dst);
+    int inferred_type = TYPE_UNKNOWN;
+    if (lhs >= 0 && lhs < s->temp_cap) inferred_type = s->temp_types[lhs];
+    s->temp_types[dst] = inferred_type;
+    tac_emit(&s->prog, (tac_instr){.op=op, .dst=dst, .lhs=lhs, .rhs=rhs, .dst_type=inferred_type});
     s->stack[s->sp++] = dst;
 }
 
@@ -411,14 +440,17 @@ static void tac_index(VM *vm) {
     s->stack[s->sp++] = dst;
 }
 
-static void tac_set(VM *vm, word imm) {
+static void tac_set(VM *vm, int type, word imm) {
     tac_backend_state *s = tac_state(vm);
-    size_t opcode_ip = vm->ip >= 2 ? vm->ip - 2 : 0;
+    /* SET consumes opcode + type + imm -> vm->ip - 3 */
+    size_t opcode_ip = vm->ip >= 3 ? vm->ip - 3 : 0;
     tac_record_vm_ip(s, opcode_ip, (int)s->prog.count);
 
-    /* create a temp for the immediate value */
+    /* create a temp for the immediate value with proper type */
     int valtmp = s->next_temp++;
-    tac_emit(&s->prog, (tac_instr){TAC_CONST, valtmp, 0, 0, imm});
+    tac_ensure_temp_capacity(s, valtmp);
+    s->temp_types[valtmp] = type;
+    tac_emit(&s->prog, (tac_instr){.op=TAC_CONST, .dst=valtmp, .imm=imm, .dst_type=type});
 
     /* Prefer using an explicit pointer temp from the virtual stack. If none is present,
        materialize the current pointer as a temp via WHERE and push it. We deliberately do
@@ -431,7 +463,9 @@ static void tac_set(VM *vm, word imm) {
         lhs = s->stack[s->sp - 1];
     } else {
         lhs = s->next_temp++;
-        tac_emit(&s->prog, (tac_instr){.op=TAC_WHERE, .dst=lhs});
+        tac_ensure_temp_capacity(s, lhs);
+        s->temp_types[lhs] = TYPE_PTR;
+        tac_emit(&s->prog, (tac_instr){.op=TAC_WHERE, .dst=lhs, .dst_type=TYPE_PTR});
         /* push the materialized pointer temp onto the virtual stack */
         s->stack[s->sp++] = lhs;
     }
@@ -703,55 +737,76 @@ static const Backend __TAC = {
 // --- Dump TAC (predicate blocks) ---
 
 /* helper: print a single TAC instruction as a Prolog goal (no trailing comma/period) */
+static const char *type_tag_name(int t) {
+    switch (t) {
+        case TYPE_I8: return "i8";
+        case TYPE_U8: return "u8";
+        case TYPE_I16: return "i16";
+        case TYPE_U16: return "u16";
+        case TYPE_I32: return "i32";
+        case TYPE_U32: return "u32";
+        case TYPE_I64: return "i64";
+        case TYPE_U64: return "u64";
+        case TYPE_F32: return "f32";
+        case TYPE_F64: return "f64";
+        case TYPE_BOOL: return "bool";
+        case TYPE_PTR: return "ptr";
+        case TYPE_VOID: return "void";
+        default: return "unknown";
+    }
+}
+
+/* Print a single TAC instruction as a Prolog goal, including type annotation for
+   destination temps when available (instr->dst_type). */
 static void tac_print_goal(FILE *out, const tac_instr *instr) {
     switch (instr->op) {
         case TAC_CONST:
-            fprintf(out, "const(t%d, %" WORD_FMT ")", instr->dst, instr->imm);
+            fprintf(out, "const(t%d, %s, %" WORD_FMT ")", instr->dst, type_tag_name(instr->dst_type), instr->imm);
             break;
         case TAC_ADD:
-            fprintf(out, "add(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "add(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_SUB:
-            fprintf(out, "sub(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "sub(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_MUL:
-            fprintf(out, "mul(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "mul(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_DIV:
-            fprintf(out, "div(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "div(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_REM:
-            fprintf(out, "rem(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "rem(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_BITAND:
-            fprintf(out, "bitand(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "bitand(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_BITOR:
-            fprintf(out, "bitor(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "bitor(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_BITXOR:
-            fprintf(out, "bitxor(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "bitxor(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_LSH:
-            fprintf(out, "lsh(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "lsh(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_LRSH:
-            fprintf(out, "lrsh(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "lrsh(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_ARSH:
-            fprintf(out, "arsh(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "arsh(t%d, %s, t%d, t%d)", instr->dst, type_tag_name(instr->dst_type), instr->lhs, instr->rhs);
             break;
         case TAC_OR:
-            fprintf(out, "or(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "or(t%d, bool, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
             break;
         case TAC_AND:
-            fprintf(out, "and(t%d, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
+            fprintf(out, "and(t%d, bool, t%d, t%d)", instr->dst, instr->lhs, instr->rhs);
             break;
         case TAC_NOT:
-            fprintf(out, "not(t%d, t%d)", instr->dst, instr->lhs);
+            fprintf(out, "not(t%d, bool, t%d)", instr->dst, instr->lhs);
             break;
         case TAC_GEZ:
-            fprintf(out, "gez(t%d, t%d)", instr->dst, instr->lhs);
+            fprintf(out, "gez(t%d, bool, t%d)", instr->dst, instr->lhs);
             break;
         case TAC_MOVE:
             fprintf(out, "move(%" WORD_FMT ")", instr->imm);

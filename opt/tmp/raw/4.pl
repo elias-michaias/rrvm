@@ -1,11 +1,11 @@
 l1 :-
-  const(t0, 7),
-  const(t1, 10),
-  add(t2, t0, t1),
+  const(t0, i64, 7),
+  const(t1, i64, 10),
+  add(t2, i64, t0, t1),
   ret.
 
 l2 :-
-  const(t3, 4),
+  const(t3, ptr, 4),
   set(t2, t3),
   ret.
 

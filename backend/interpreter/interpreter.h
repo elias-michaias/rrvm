@@ -20,8 +20,10 @@ static inline word div_fn(word a, word b) {
     return a / b;
 }
 
-static inline void interp_push(VM *vm, word imm) {
+static inline void interp_push(VM *vm, int type, word imm) {
+    /* push a value and record its TypeTag in the parallel types array */
     vm_push(vm, imm);
+    vm->types[vm->sp - 1] = (TypeTag)type;
 }
 
 static inline void interp_move(VM *vm, word imm) {
@@ -37,19 +39,32 @@ static inline void interp_move(VM *vm, word imm) {
 }
 
 static inline void interp_load(VM *vm) {
+    /* push both value and its recorded tape type */
     vm_push(vm, vm->tape[vm->tp]);
+    vm->types[vm->sp - 1] = vm->tape_types[vm->tp];
 }
 
 static inline void interp_store(VM *vm) {
+    /* pop value and propagate its type into the tape cell */
+    assert(vm->sp > 0 && "interp_store: empty stack");
+    TypeTag t = vm->types[vm->sp - 1];
     word val = vm_pop(vm);
     vm->tape[vm->tp] = val;
+    vm->tape_types[vm->tp] = t;
 }
 
 static inline void interp_binary(VM *vm, word (*fn)(word, word)) {
-    word a = vm_pop(vm);
-    word b = vm_pop(vm);
+    /* binary ops must have two operands with identical types. The VM assumes
+       well-typed input; mismatch causes an assert (fail-fast). */
+    assert(vm->sp >= 2 && "interp_binary: stack underflow");
+    TypeTag top = vm->types[vm->sp - 1];
+    TypeTag next = vm->types[vm->sp - 2];
+    assert(top == next && "interp_binary: type mismatch");
+    word a = vm_pop(vm); /* top */
+    word b = vm_pop(vm); /* next */
     word result = fn(b, a);
     vm_push(vm, result);
+    vm->types[vm->sp - 1] = top;
 }
 
 static inline void interp_add(VM *vm) {
@@ -69,8 +84,45 @@ static inline void interp_div(VM *vm) {
 }
 
 static inline void interp_print(VM *vm) {
+    assert(vm->sp > 0 && "interp_print: empty stack");
+    TypeTag t = vm->types[vm->sp - 1];
     word value = vm_pop(vm);
-    printf("%" WORD_FMT "\n", value);
+
+    switch (t) {
+        case TYPE_F32: {
+            uint32_t bits = (uint32_t)(value & 0xFFFFFFFFu);
+            float f;
+            memcpy(&f, &bits, sizeof(f));
+            /* upcast to double for consistent printf formatting */
+            printf("%f\n", (double)f);
+            break;
+        }
+        case TYPE_F64: {
+            double d;
+            memcpy(&d, &value, sizeof(d));
+            printf("%f\n", d);
+            break;
+        }
+        case TYPE_U8:
+        case TYPE_U16:
+        case TYPE_U32:
+        case TYPE_U64: {
+            uint64_t u = (uint64_t)value;
+            printf("%" PRIu64 "\n", u);
+            break;
+        }
+        case TYPE_BOOL:
+        case TYPE_PTR:
+        case TYPE_I8:
+        case TYPE_I16:
+        case TYPE_I32:
+        case TYPE_I64:
+        default: {
+            int64_t s = (int64_t)value;
+            printf("%" WORD_FMT "\n", s);
+            break;
+        }
+    }
 }
 
 static inline void inter_setup(VM *vm) { /* nothing for now */ }
@@ -96,8 +148,10 @@ static inline void interp_function(VM *vm, word func_index) {
         } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
             depth--;
         } else {
-            /* skip immediates */
-            if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+            /* skip immediates: OP_PUSH and OP_SET carry two immediates (type+imm).
+               OP_MOVE, OP_FUNCTION, OP_CALL, OP_WHILE carry one immediate. */
+            if (op == OP_PUSH || op == OP_SET) i += 2;
+            else if (op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL || op == OP_WHILE) i++;
         }
     }
     vm->ip = vm->code_len; /* fallback */
@@ -155,8 +209,9 @@ static inline void interp_if(VM *vm) {
             } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
                 depth--;
             } else {
-                /* if op has immediate, skip it */
-                if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+                /* if op has immediate, skip it. account for new PUSH/SET formats. */
+                if (op == OP_PUSH || op == OP_SET) i += 2;
+                else if (op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL || op == OP_WHILE) i++;
             }
         }
         /* not found -> end execution */
@@ -186,7 +241,9 @@ static inline void interp_else(VM *vm) {
         } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
             depth--;
         } else {
-            if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+            /* skip immediates, accounting for typed PUSH/SET */
+            if (op == OP_PUSH || op == OP_SET) i += 2;
+            else if (op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL || op == OP_WHILE) i++;
         }
     }
     vm->ip = vm->code_len;
@@ -226,7 +283,9 @@ static inline void interp_while(VM *vm, word cond_ip) {
             } else if (op == OP_ELSE || op == OP_ENDBLOCK) {
                 depth--;
             } else {
-                if (op == OP_PUSH || op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL) i++;
+                /* typed PUSH/SET use two immediates; other ops use one */
+                if (op == OP_PUSH || op == OP_SET) i += 2;
+                else if (op == OP_MOVE || op == OP_FUNCTION || op == OP_CALL || op == OP_WHILE) i++;
             }
         }
         vm->ip = vm->code_len;
@@ -282,9 +341,10 @@ static inline void interp_index(VM *vm) {
     }
 }
 
-static inline void interp_set(VM *vm, word imm) {
-    /* store immediate into tape at current tp */
+static inline void interp_set(VM *vm, int type, word imm) {
+    /* store immediate into tape at current tp and record its type */
     vm->tape[vm->tp] = imm;
+    vm->tape_types[vm->tp] = (TypeTag)type;
 }
 
 /* --- NEW scalar multi/bitwise/logical handlers (stack-oriented) --- */
