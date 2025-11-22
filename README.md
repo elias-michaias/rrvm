@@ -29,7 +29,7 @@ end
 ```
 
 One of the weaknesses of a zero-address stack machine intermediate representation (IR) during compilation phases is that it lacks many of the chances to *optimize* that three-address code does. See the following article by *geeksforgeeks* for more information on three-address code: [Three address code in compilers](https://www.geeksforgeeks.org/compiler-design/three-address-code-compiler/).
-RRVM addresses this by being able to reconstruct itself into a three-address code format. This means it can simultaneously serve as a convenient compile target (zero-address stack machines are much easier to work with) and also have the potential for aggressive optimization (since three-address code is more amenable to optimization techniques).
+RRVM addresses this by being able to reconstruct itself into a three-address code format. This means it can simultaneously serve as a convenient compile target (zero-address stack machines have an easier mental model as a compile target) and also have the potential for aggressive optimization (since three-address code is more amenable to optimization techniques).
 
 ### Relational
 
