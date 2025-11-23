@@ -1,7 +1,7 @@
 #ifndef TAC_BACKEND_H
 #define TAC_BACKEND_H
 
-#include "../../vm/vm.h"
+#include "../vm/vm.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>

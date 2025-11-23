@@ -31,7 +31,7 @@
  *    terminated string describing the error. The caller must free(*err_msg).
  */
 
-#include "../../vm/vm.h"
+#include "../vm/vm.h"
 
 #ifdef __cplusplus
 extern "C" {

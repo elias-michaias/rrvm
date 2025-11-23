@@ -1,7 +1,7 @@
 #ifndef INTERP_H
 #define INTERP_H
 
-#include "../../vm/vm.h"
+#include "../vm/vm.h"
 
 static inline word add_fn(word a, word b) {
     return a + b;
@@ -575,4 +575,3 @@ static const Backend __INTERPRETER = {
 };
 
 #endif // INTERP_H
-

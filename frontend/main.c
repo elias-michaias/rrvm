@@ -22,11 +22,11 @@
 
 /* VM and backends */
 #include "vm/vm.h"
-#include "backend/interpreter/interpreter.h"
-#include "backend/tac/tac.h"
+#include "interpreter/interpreter.h"
+#include "tac/tac.h"
 
 /* Parser for .rr textual input */
-#include "frontend/parser/parser.h"
+#include "parser/parser.h"
 
 /* Built-in sample programs removed. The CLI now requires --file <path> (or '-' for stdin). */
 
